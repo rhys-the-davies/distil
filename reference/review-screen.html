@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Review import — AWARE™</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f7f6f3;
+  --surface: #ffffff;
+  --surface-2: #f0ede8;
+  --surface-3: #e8e5e0;
+  --text-1: #1a1917;
+  --text-2: #5c5a55;
+  --text-3: #9c9a94;
+  --border: rgba(0,0,0,0.08);
+  --border-mid: rgba(0,0,0,0.14);
+  --green: #1a7a57;
+  --green-bg: #eaf5ef;
+  --green-text: #0d4a34;
+  --amber: #a05e0a;
+  --amber-bg: #fdf3e0;
+  --amber-text: #6b3d05;
+  --red: #c0392b;
+  --red-bg: #fdf0ef;
+  --red-text: #7a1f18;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --mono: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
+  --sans: 'DM Sans', system-ui, sans-serif;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=DM+Mono:wght@400&display=swap');
+
+body { font-family: var(--sans); background: var(--bg); color: var(--text-1); min-height: 100vh; font-size: 14px; line-height: 1.5; }
+
+.topbar { background: var(--surface); border-bottom: 0.5px solid var(--border-mid); padding: 0 2rem; height: 52px; display: flex; align-items: center; justify-content: space-between; }
+.topbar-logo { font-size: 13px; font-weight: 500; letter-spacing: -0.01em; }
+.topbar-logo span { color: var(--text-3); font-weight: 400; }
+.step-trail { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); }
+.step-trail .active { color: var(--text-1); font-weight: 500; }
+.step-trail .done { color: var(--green); }
+.step-trail .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--border-mid); }
+
+/* ── CLI SCREEN ── */
+#cli-screen { max-width: 740px; margin: 4rem auto; padding: 0 2rem; }
+.cli-box { background: #1a1917; border-radius: var(--radius-lg); padding: 1.5rem; font-family: var(--mono); font-size: 12px; line-height: 1.8; color: #c8c5be; overflow: hidden; }
+.cli-header { display: flex; align-items: center; gap: 8px; margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 0.5px solid rgba(255,255,255,0.08); }
+.cli-dot { width: 10px; height: 10px; border-radius: 50%; }
+.cli-line { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 2px; opacity: 0; transition: opacity .15s; }
+.cli-line.visible { opacity: 1; }
+.cli-prefix { color: #5c5a55; flex-shrink: 0; }
+.cli-ok { color: #1a7a57; }
+.cli-warn { color: #a05e0a; }
+.cli-err { color: #c0392b; }
+.cli-muted { color: #5c5a55; }
+.cli-cursor { display: inline-block; width: 7px; height: 13px; background: #c8c5be; animation: blink 1s step-end infinite; vertical-align: middle; margin-left: 2px; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.cli-below { margin-top: 1.5rem; text-align: center; }
+.cli-below p { font-size: 13px; color: var(--text-2); margin-bottom: 1rem; }
+
+/* ── REVIEW SCREEN ── */
+#review-screen { display: none; }
+.layout { max-width: 1100px; margin: 0 auto; padding: 2rem 2rem 4rem; display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); gap: 2rem; align-items: start; }
+.page-title { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; margin-bottom: 4px; }
+.page-sub { font-size: 13px; color: var(--text-2); margin-bottom: 1.5rem; }
+.summary-text { font-size: 13px; color: var(--text-2); line-height: 1.75; margin-bottom: 1.25rem; }
+.summary-text strong { color: var(--text-1); font-weight: 500; }
+.summary-text code { font-family: var(--mono); font-size: 11px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.progress-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+.progress-row span { font-size: 12px; color: var(--text-3); }
+.prog-bg { background: var(--surface-2); border-radius: 4px; height: 5px; overflow: hidden; margin-bottom: 1.5rem; }
+.prog-fill { height: 5px; border-radius: 4px; background: var(--green); transition: width .5s ease; }
+.metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 2rem; }
+.metric { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+.metric-label { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+.metric-val { font-size: 22px; font-weight: 500; }
+.section-label { font-size: 10px; font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
+.divider { border: none; border-top: 0.5px solid var(--border); margin: 1.75rem 0; }
+
+/* ── FIELD CARDS ── */
+.field-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 8px; overflow: hidden; transition: border-color .15s; }
+.field-card.fl { border-left: 2.5px solid var(--amber); border-radius: 0 var(--radius-lg) var(--radius-lg) 0; }
+.field-card.fe { border-left: 2.5px solid var(--red); border-radius: 0 var(--radius-lg) var(--radius-lg) 0; }
+.field-card.fok { border-left: 2.5px solid var(--green); border-radius: 0 var(--radius-lg) var(--radius-lg) 0; }
+
+.card-main { padding: 14px 16px; }
+.card-header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.card-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.card-title { font-size: 13px; font-weight: 500; }
+.badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 20px; }
+.b-green { background: var(--green-bg); color: var(--green-text); }
+.b-amber { background: var(--amber-bg); color: var(--amber-text); }
+.b-red { background: var(--red-bg); color: var(--red-text); }
+.b-gray { background: var(--surface-2); color: var(--text-2); }
+
+.source-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chip { font-family: var(--mono); font-size: 10px; background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 4px; padding: 2px 6px; color: var(--text-2); }
+.chip-loc { background: var(--amber-bg); color: var(--amber-text); border-color: rgba(160,94,10,0.15); }
+.chip-err { background: var(--red-bg); color: var(--red-text); border-color: rgba(192,57,43,0.15); }
+
+.extracted-block { background: var(--surface-2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 10px; }
+.extracted-label { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3); margin-bottom: 6px; }
+.extracted-raw { font-family: var(--mono); font-size: 11px; color: var(--text-2); margin-bottom: 6px; }
+.extracted-arrow { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+.extracted-val { font-size: 13px; font-weight: 500; color: var(--text-1); }
+.extracted-conf { font-size: 11px; color: var(--text-3); margin-top: 4px; display: flex; align-items: center; gap: 5px; }
+.conf-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+.conflict-box { background: var(--amber-bg); border: 0.5px solid rgba(160,94,10,0.2); border-radius: var(--radius); padding: 10px 12px; font-size: 12px; color: var(--amber-text); line-height: 1.65; margin-bottom: 10px; }
+.conflict-box strong { font-weight: 500; }
+.conflict-rows { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.conflict-row { display: flex; align-items: baseline; gap: 8px; font-size: 11px; }
+.conflict-src { font-family: var(--mono); color: var(--amber); flex-shrink: 0; }
+.conflict-v { font-weight: 500; color: var(--amber-text); }
+
+.actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.btn { background: transparent; border: 0.5px solid var(--border-mid); border-radius: var(--radius); padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--text-1); font-family: var(--sans); transition: background .1s; white-space: nowrap; }
+.btn:hover { background: var(--surface-2); }
+.btn-ok { border-color: var(--green); color: var(--green); }
+.btn-ok:hover { background: var(--green-bg); }
+.btn-ok:disabled { opacity: .35; cursor: not-allowed; }
+
+.ipt { background: var(--surface-2); border: 0.5px solid var(--border-mid); border-radius: var(--radius); padding: 6px 10px; font-size: 12px; font-family: var(--sans); color: var(--text-1); width: 100%; margin-top: 8px; }
+.ipt:focus { outline: none; border-color: var(--green); }
+
+/* confirmed state */
+.confirmed-state { display: none; padding: 12px 16px; display: none; align-items: center; justify-content: space-between; gap: 8px; }
+.confirmed-value { font-size: 13px; font-weight: 500; color: var(--text-1); }
+.confirmed-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.undo-btn { font-size: 11px; color: var(--text-3); background: none; border: none; cursor: pointer; font-family: var(--sans); padding: 3px 6px; border-radius: 4px; white-space: nowrap; text-decoration: underline; text-underline-offset: 2px; }
+.undo-btn:hover { color: var(--text-1); }
+
+/* context strip */
+.context-strip { border-top: 0.5px solid var(--border); background: var(--surface-2); padding: 10px 16px; }
+.context-strip-label { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3); margin-bottom: 6px; }
+.context-msg { display: flex; gap: 8px; margin-bottom: 4px; font-size: 11px; line-height: 1.55; }
+.context-msg .who { font-weight: 500; color: var(--text-2); flex-shrink: 0; min-width: 52px; }
+.context-msg .what { color: var(--text-2); }
+.context-msg.highlight .what { color: var(--text-1); font-weight: 500; background: rgba(160,94,10,0.08); border-radius: 3px; padding: 0 3px; }
+
+/* clean table */
+.tbl-wrapper { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.clean-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.clean-table th { text-align: left; font-size: 10px; font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: .07em; padding: 8px 12px; border-bottom: 0.5px solid var(--border); background: var(--surface); }
+.clean-table td { padding: 7px 12px; border-bottom: 0.5px solid var(--border); color: var(--text-1); background: var(--surface); vertical-align: middle; }
+.clean-table tr:last-child td { border-bottom: none; }
+.clean-table tr:hover td { background: var(--surface-2); }
+.td-field { color: var(--text-2); }
+.td-src { font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+.edit-link { font-size: 11px; color: var(--text-3); cursor: pointer; background: none; border: none; font-family: var(--sans); padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+.edit-link:hover { color: var(--text-1); }
+
+/* feedback */
+.feedback-section { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.25rem; margin-top: 1.75rem; }
+.feedback-label { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+.feedback-sub { font-size: 12px; color: var(--text-2); margin-bottom: 8px; line-height: 1.6; }
+textarea.fb { background: var(--surface-2); border: 0.5px solid var(--border-mid); border-radius: var(--radius); padding: 8px 10px; font-size: 12px; font-family: var(--sans); color: var(--text-1); width: 100%; resize: vertical; min-height: 60px; }
+textarea.fb:focus { outline: none; border-color: var(--green); }
+
+/* approve */
+.approve-section { margin-top: 2rem; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; }
+.approve-title { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+.approve-sub { font-size: 12px; color: var(--text-2); margin-bottom: 1rem; line-height: 1.6; }
+.approve-btn { background: var(--green); color: #fff; border: none; border-radius: var(--radius); padding: 11px 24px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: var(--sans); width: 100%; transition: opacity .15s; }
+.approve-btn:disabled { opacity: .3; cursor: not-allowed; }
+.approve-btn:not(:disabled):hover { opacity: .85; }
+
+/* validation modal */
+.modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; align-items: center; justify-content: center; }
+.modal-bg.open { display: flex; }
+.modal { background: var(--surface); border-radius: var(--radius-lg); padding: 1.5rem; max-width: 460px; width: calc(100% - 2rem); }
+.modal-title { font-size: 16px; font-weight: 500; margin-bottom: 8px; }
+.modal-body { font-size: 13px; color: var(--text-2); line-height: 1.7; margin-bottom: 1.25rem; }
+.modal-fields { background: var(--surface-2); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 1.25rem; font-size: 12px; }
+.modal-field-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 0.5px solid var(--border); }
+.modal-field-row:last-child { border-bottom: none; }
+.modal-field-label { color: var(--text-2); }
+.modal-field-val { font-weight: 500; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* sidebar */
+.sidebar-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 12px; }
+.sidebar-card-header { padding: 12px 14px; border-bottom: 0.5px solid var(--border); font-size: 12px; font-weight: 500; display: flex; align-items: center; justify-content: space-between; }
+.file-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 0.5px solid var(--border); }
+.file-row:last-child { border-bottom: none; }
+.file-icon { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 500; flex-shrink: 0; font-family: var(--mono); }
+.file-name { font-size: 12px; font-weight: 500; margin-bottom: 2px; }
+.file-meta { font-size: 10px; color: var(--text-3); }
+.callout { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 14px; margin-bottom: 12px; }
+.callout-label { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3); margin-bottom: 8px; }
+.callout-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 0.5px solid var(--border); font-size: 12px; }
+.callout-item:last-child { border-bottom: none; }
+.callout-item-label { color: var(--text-2); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <p class="topbar-logo">AWARE™ <span>/ import portal</span></p>
+  <div class="step-trail">
+    <span class="done">Upload files</span>
+    <span class="dot"></span>
+    <span class="active" id="step-processing">Processing</span>
+    <span class="dot"></span>
+    <span id="step-review" style="color:var(--text-3)">Review</span>
+    <span class="dot"></span>
+    <span style="color:var(--text-3)">Confirm</span>
+  </div>
+</div>
+
+<!-- CLI PROCESSING SCREEN -->
+<div id="cli-screen">
+  <div style="text-align:center;padding:2rem 0 1.5rem">
+    <p style="font-size:18px;font-weight:500;margin-bottom:6px">Extracting and reviewing your data</p>
+    <p style="font-size:13px;color:var(--text-2)">3 files · do not close this tab</p>
+  </div>
+  <div class="cli-box" id="cli-box">
+    <div class="cli-header">
+      <div class="cli-dot" style="background:#e74c3c"></div>
+      <div class="cli-dot" style="background:#f39c12"></div>
+      <div class="cli-dot" style="background:#2ecc71"></div>
+      <span style="margin-left:4px;font-size:11px;color:#5c5a55">aware-import · extraction</span>
+    </div>
+    <div id="cli-lines"></div>
+  </div>
+  <div class="cli-below">
+    <p id="cli-status-text">Running quality checks...</p>
+    <button class="btn btn-ok" id="cli-continue-btn" style="display:none" onclick="showReview()">Review results →</button>
+  </div>
+</div>
+
+<!-- REVIEW SCREEN -->
+<div id="review-screen">
+<div class="layout">
+  <div class="main">
+    <p class="page-title">Review your import</p>
+    <p class="page-sub">Sunrise Textile Mill · 3 files processed</p>
+
+    <p class="summary-text">
+      Production records found for <strong>47 batches</strong> across 3 files. 28 fields mapped cleanly.
+      2 fields have conflicting values across sources and need your input.
+      1 required field — <code>certifying_body</code> — was not found in any file and must be added before this import can be approved.
+    </p>
+
+    <div class="progress-row">
+      <span id="prog-label">28 of 31 fields confirmed</span>
+      <span id="prog-pct">90%</span>
+    </div>
+    <div class="prog-bg"><div class="prog-fill" id="prog-bar" style="width:90%"></div></div>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label">Fields found</div>
+        <div class="metric-val" style="color:var(--text-1)">31</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Confirmed</div>
+        <div class="metric-val" style="color:var(--green)" id="confirmed-val">28</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Action needed</div>
+        <div class="metric-val" style="color:var(--red)" id="action-val">3</div>
+      </div>
+    </div>
+
+    <p class="section-label">Fields requiring action</p>
+
+    <!-- CARD: certifying body (missing/error) -->
+    <div class="field-card fe" id="card-cert">
+      <div class="card-main">
+        <div class="card-header">
+          <div>
+            <div class="card-title-row">
+              <span class="card-title">Certifying body</span>
+              <span class="badge b-red" id="cert-badge">Missing</span>
+            </div>
+            <div class="source-meta" style="margin-top:5px">
+              <span class="chip chip-err">required field · not found in any source</span>
+            </div>
+          </div>
+        </div>
+        <div class="extracted-block">
+          <div class="extracted-label">Extraction result</div>
+          <div class="extracted-raw">searched: production_log_q1.xlsx, april_batches.csv, WhatsApp 04-2024.txt</div>
+          <div class="extracted-arrow">↓</div>
+          <div style="font-size:12px;color:var(--red)">No match found. This field is required by AWARE™ to complete the supplier profile.</div>
+          <div class="extracted-conf"><div class="conf-dot" style="background:var(--red)"></div> Confidence: none — manual entry required</div>
+        </div>
+        <div id="cert-input-area">
+          <input class="ipt" type="text" placeholder="e.g. Bureau Veritas, SGS, Intertek" id="certInput" oninput="checkBtn('certInput','certBtn')">
+          <div style="margin-top:8px" class="actions">
+            <button class="btn btn-ok" id="certBtn" disabled onclick="resolve('cert', 'certInput')">Confirm entry</button>
+          </div>
+        </div>
+      </div>
+      <div class="confirmed-state" id="cert-confirmed">
+        <div>
+          <div class="confirmed-value" id="cert-confirmed-val"></div>
+          <div class="confirmed-sub">Manually entered · certifying body</div>
+        </div>
+        <button class="undo-btn" onclick="unresolve('cert')">Change</button>
+      </div>
+    </div>
+
+    <!-- CARD: batch weight (conflict) -->
+    <div class="field-card fl" id="card-weight">
+      <div class="card-main" id="weight-card-main">
+        <div class="card-header">
+          <div>
+            <div class="card-title-row">
+              <span class="card-title">Batch weight (kg)</span>
+              <span class="badge b-amber" id="weight-badge">Conflict</span>
+            </div>
+            <div class="source-meta" style="margin-top:5px">
+              <span class="chip">april_batches.csv</span>
+              <span class="chip chip-loc">row 3</span>
+              <span style="font-size:10px;color:var(--text-3)">+</span>
+              <span class="chip">WhatsApp 04-2024.txt</span>
+              <span class="chip chip-loc">14 Apr, 09:42</span>
+            </div>
+          </div>
+        </div>
+        <div class="extracted-block">
+          <div class="extracted-label">Extraction result</div>
+          <div class="conflict-rows">
+            <div class="conflict-row"><span class="conflict-src">april_batches.csv:3</span><span class="conflict-v">450 kg</span><span style="font-size:10px;color:var(--text-3)">(12 Apr — earliest record)</span></div>
+            <div class="conflict-row"><span class="conflict-src">WhatsApp:14Apr</span><span class="conflict-v">400 kg</span><span style="font-size:10px;color:var(--text-3)">(Ahmed Raza, 09:42)</span></div>
+          </div>
+          <div class="extracted-conf" style="margin-top:8px"><div class="conf-dot" style="background:var(--amber)"></div> Confidence: low — values differ by 50 kg across sources. Earliest record shown by default.</div>
+        </div>
+        <div class="actions" id="weight-actions">
+          <button class="btn btn-ok" onclick="resolveChoice('weight','450 kg','april_batches.csv row 3')">Use 450 kg (CSV)</button>
+          <button class="btn btn-ok" onclick="resolveChoice('weight','400 kg','WhatsApp · Ahmed, 14 Apr')">Use 400 kg (WhatsApp)</button>
+          <button class="btn" onclick="showCustomField('weight-custom','weight-actions')">Enter correct value</button>
+        </div>
+        <div id="weight-custom" style="display:none">
+          <input class="ipt" type="number" placeholder="Weight in kg" id="weightInput" oninput="checkBtn('weightInput','weightBtn')">
+          <div style="margin-top:8px" class="actions">
+            <button class="btn btn-ok" id="weightBtn" disabled onclick="resolveFromInput('weight','weightInput',' kg','Manually entered')">Confirm</button>
+          </div>
+        </div>
+      </div>
+      <div class="context-strip">
+        <div class="context-strip-label">WhatsApp context — 14 Apr 2024</div>
+        <div class="context-msg"><span class="who">Ahmed R.</span><span class="what">batch wrapped up this morning, sending final count now</span></div>
+        <div class="context-msg highlight"><span class="who">Ahmed R.</span><span class="what">400kg total, slight under on the order but within tolerance</span></div>
+        <div class="context-msg"><span class="who">Ahmed R.</span><span class="what">shipping docs coming tomorrow</span></div>
+      </div>
+      <div class="confirmed-state" id="weight-confirmed">
+        <div>
+          <div class="confirmed-value" id="weight-confirmed-val"></div>
+          <div class="confirmed-sub" id="weight-confirmed-src"></div>
+        </div>
+        <button class="undo-btn" onclick="unresolve('weight')">Change</button>
+      </div>
+    </div>
+
+    <!-- CARD: production date (needs review) -->
+    <div class="field-card fl" id="card-date">
+      <div class="card-main" id="date-card-main">
+        <div class="card-header">
+          <div>
+            <div class="card-title-row">
+              <span class="card-title">Production date</span>
+              <span class="badge b-amber" id="date-badge">Needs review</span>
+            </div>
+            <div class="source-meta" style="margin-top:5px">
+              <span class="chip">production_log_q1.xlsx</span>
+              <span class="chip chip-loc">sheet: Q1 Log · row 14 · col D</span>
+            </div>
+          </div>
+        </div>
+        <div class="extracted-block">
+          <div class="extracted-label">Extraction result</div>
+          <div class="extracted-raw">raw cell value: "14/03/24"</div>
+          <div class="extracted-arrow">→ interpreted as</div>
+          <div class="extracted-val">14 March 2024</div>
+          <div class="extracted-conf" style="margin-top:6px"><div class="conf-dot" style="background:var(--amber)"></div> Confidence: medium — mixed date formats detected in column D (DD/MM/YY and MM/DD/YY both present). Assumed DD/MM/YY based on majority.</div>
+        </div>
+        <div class="actions" id="date-actions">
+          <button class="btn btn-ok" onclick="resolveChoice('date','14 March 2024','production_log_q1.xlsx · row 14')">Looks right</button>
+          <button class="btn" onclick="showCustomField('date-custom','date-actions')">Edit</button>
+        </div>
+        <div id="date-custom" style="display:none">
+          <input class="ipt" type="text" placeholder="e.g. 14 March 2024" id="dateInput" oninput="checkBtn('dateInput','dateBtn')">
+          <div style="margin-top:8px" class="actions">
+            <button class="btn btn-ok" id="dateBtn" disabled onclick="resolveFromInput('date','dateInput','','Manually corrected')">Confirm</button>
+          </div>
+        </div>
+      </div>
+      <div class="confirmed-state" id="date-confirmed">
+        <div>
+          <div class="confirmed-value" id="date-confirmed-val"></div>
+          <div class="confirmed-sub" id="date-confirmed-src"></div>
+        </div>
+        <button class="undo-btn" onclick="unresolve('date')">Change</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <p class="section-label">Processed fields (28)</p>
+    <div class="tbl-wrapper">
+      <table class="clean-table">
+        <thead>
+          <tr>
+            <th style="width:28%">Field</th>
+            <th style="width:34%">Value</th>
+            <th style="width:24%">Source</th>
+            <th style="width:8%">Status</th>
+            <th style="width:6%"></th>
+          </tr>
+        </thead>
+        <tbody id="clean-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="feedback-section">
+      <p class="feedback-label">Something look wrong?</p>
+      <p class="feedback-sub">Describe any issues in the processed fields above. The review will re-run on those fields specifically.</p>
+      <textarea class="fb" placeholder="e.g. The supplier name should be 'Al-Noor Fabrics' not 'Al Nour Fabrics'"></textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-ok">Re-run review on flagged fields</button>
+      </div>
+    </div>
+
+    <div class="approve-section">
+      <p class="approve-title">Ready to send to AWARE™?</p>
+      <p class="approve-sub" id="approve-sub">Resolve all 3 outstanding fields before approving. Once confirmed, this data will be written to your AWARE™ supplier profile.</p>
+      <button class="approve-btn" id="approve-btn" disabled onclick="openModal()">Send to AWARE™</button>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="sidebar-card">
+      <div class="sidebar-card-header">
+        <span>Uploaded files</span>
+        <span class="badge b-gray">3 files</span>
+      </div>
+      <div class="file-row">
+        <div class="file-icon" style="background:#eaf5ef;color:#0d4a34">XLSX</div>
+        <div style="flex:1;min-width:0">
+          <p class="file-name">production_log_q1.xlsx</p>
+          <p class="file-meta">2.1 MB · 312 rows</p>
+        </div>
+        <span class="badge b-green">OK</span>
+      </div>
+      <div class="file-row">
+        <div class="file-icon" style="background:#e8f0fd;color:#1a4f9c">CSV</div>
+        <div style="flex:1;min-width:0">
+          <p class="file-name">april_batches.csv</p>
+          <p class="file-meta">84 KB · 47 rows</p>
+        </div>
+        <span class="badge b-green">OK</span>
+      </div>
+      <div class="file-row">
+        <div class="file-icon" style="background:#f0ede8;color:#5c5a55">TXT</div>
+        <div style="flex:1;min-width:0">
+          <p class="file-name">WhatsApp 04-2024.txt</p>
+          <p class="file-meta">41 KB · 284 messages</p>
+        </div>
+        <span class="badge b-amber">1 conflict</span>
+      </div>
+    </div>
+
+    <div class="callout">
+      <p class="callout-label">Import summary</p>
+      <div class="callout-item"><span class="callout-item-label">Batches found</span><span style="font-weight:500;font-size:12px">47</span></div>
+      <div class="callout-item"><span class="callout-item-label">Fields extracted</span><span style="font-weight:500;font-size:12px">31</span></div>
+      <div class="callout-item"><span class="callout-item-label">Source conflicts</span><span style="font-weight:500;font-size:12px;color:var(--amber)">1</span></div>
+      <div class="callout-item"><span class="callout-item-label">Missing required</span><span style="font-weight:500;font-size:12px;color:var(--red)">1</span></div>
+      <div class="callout-item"><span class="callout-item-label">Destination</span><span style="font-weight:500;font-size:12px">AWARE™ supplier profile</span></div>
+    </div>
+
+    <div class="callout">
+      <p class="callout-label">Review checklist</p>
+      <div class="callout-item">
+        <span class="callout-item-label">Certifying body</span>
+        <span class="badge b-red" id="chk-cert">Missing</span>
+      </div>
+      <div class="callout-item">
+        <span class="callout-item-label">Batch weight</span>
+        <span class="badge b-amber" id="chk-weight">Conflict</span>
+      </div>
+      <div class="callout-item">
+        <span class="callout-item-label">Production date</span>
+        <span class="badge b-amber" id="chk-date">Review</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- CONFIRMATION MODAL -->
+<div class="modal-bg" id="confirm-modal">
+  <div class="modal">
+    <p class="modal-title">Confirm and send to AWARE™</p>
+    <p class="modal-body">You're about to write this import to your AWARE™ supplier profile. Check the summary below before confirming — this action can be reversed by contacting your AWARE™ account manager.</p>
+    <div class="modal-fields" id="modal-fields"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Go back</button>
+      <button class="btn btn-ok" onclick="handleApprove()">Confirm and send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const cleanFields = [
+  { field: 'Supplier name', value: 'Sunrise Textile Mill', src: 'production_log_q1.xlsx' },
+  { field: 'Country of origin', value: 'Bangladesh', src: 'production_log_q1.xlsx' },
+  { field: 'Facility ID', value: 'BD-DAC-0042', src: 'production_log_q1.xlsx' },
+  { field: 'Material type', value: 'Cotton (100%)', src: 'april_batches.csv' },
+  { field: 'Batch ID', value: 'STM-2024-0334', src: 'april_batches.csv' },
+  { field: 'Quantity (units)', value: '12,400', src: 'april_batches.csv' },
+  { field: 'Production month', value: 'April 2024', src: 'april_batches.csv' },
+  { field: 'Buyer reference', value: 'PO-NL-8812', src: 'april_batches.csv' },
+  { field: 'Mill contact', value: 'Ahmed Raza', src: 'WhatsApp 04-2024.txt' },
+  { field: 'Contact email', value: 'a.raza@sunrisetex.com', src: 'production_log_q1.xlsx' },
+  { field: 'Yarn type', value: 'Ring-spun, 30s', src: 'production_log_q1.xlsx' },
+  { field: 'Weave structure', value: 'Plain weave', src: 'production_log_q1.xlsx' },
+  { field: 'GSM', value: '180', src: 'production_log_q1.xlsx' },
+  { field: 'Colour standard', value: 'Pantone TCX', src: 'production_log_q1.xlsx' },
+  { field: 'Dyeing method', value: 'Reactive', src: 'april_batches.csv' },
+  { field: 'Water usage (L/kg)', value: '42', src: 'production_log_q1.xlsx' },
+  { field: 'Energy source', value: 'Grid + Solar (partial)', src: 'WhatsApp 04-2024.txt' },
+  { field: 'Waste water treatment', value: 'On-site ETP', src: 'production_log_q1.xlsx' },
+  { field: 'Worker headcount', value: '340', src: 'production_log_q1.xlsx' },
+  { field: 'Shift pattern', value: '2-shift, 10hr', src: 'production_log_q1.xlsx' },
+  { field: 'Audit status', value: 'BSCI 2023', src: 'production_log_q1.xlsx' },
+  { field: 'Last audit date', value: '18 Sep 2023', src: 'production_log_q1.xlsx' },
+  { field: 'Audit body', value: 'Bureau Veritas', src: 'production_log_q1.xlsx' },
+  { field: 'Next audit due', value: 'Sep 2025', src: 'production_log_q1.xlsx' },
+  { field: 'Incoterms', value: 'FOB Chittagong', src: 'april_batches.csv' },
+  { field: 'Ship date (est.)', value: '22 May 2024', src: 'april_batches.csv' },
+  { field: 'Destination port', value: 'Rotterdam', src: 'april_batches.csv' },
+  { field: 'Currency', value: 'USD', src: 'april_batches.csv' },
+];
+
+const tbody = document.getElementById('clean-tbody');
+cleanFields.forEach(f => {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="td-field">${f.field}</td><td>${f.value}</td><td class="td-src">${f.src}</td><td><span class="badge b-green">Processed</span></td><td><button class="edit-link">Edit</button></td>`;
+  tbody.appendChild(tr);
+});
+
+// ── CLI ANIMATION ──
+const cliLines = [
+  { delay: 300, cls: '', text: '→ parsing production_log_q1.xlsx' },
+  { delay: 700, cls: 'cli-ok', text: '✓ 312 rows · 14 columns · no encoding errors' },
+  { delay: 1100, cls: '', text: '→ parsing april_batches.csv' },
+  { delay: 1500, cls: 'cli-ok', text: '✓ 47 rows · 8 columns · clean' },
+  { delay: 1900, cls: '', text: '→ parsing WhatsApp 04-2024.txt' },
+  { delay: 2300, cls: 'cli-ok', text: '✓ 284 messages · date range: 1–30 Apr 2024' },
+  { delay: 2800, cls: 'cli-muted', text: '── field extraction ──────────────────' },
+  { delay: 3100, cls: '', text: '→ extracting supplier fields' },
+  { delay: 3500, cls: 'cli-ok', text: '✓ 28 fields mapped with high confidence' },
+  { delay: 3900, cls: '', text: '→ cross-referencing sources' },
+  { delay: 4400, cls: 'cli-warn', text: '⚠ conflict: batch_weight — CSV: 450kg / WhatsApp: 400kg' },
+  { delay: 4900, cls: '', text: '→ checking required fields' },
+  { delay: 5300, cls: 'cli-err', text: '✗ missing: certifying_body (required by AWARE™)' },
+  { delay: 5700, cls: '', text: '→ checking date formats' },
+  { delay: 6100, cls: 'cli-warn', text: '⚠ ambiguous: production_date — mixed DD/MM/YY and MM/DD/YY in col D' },
+  { delay: 6600, cls: 'cli-muted', text: '── quality review complete ───────────' },
+  { delay: 7000, cls: 'cli-ok', text: '✓ 28 fields confirmed · 2 warnings · 1 error' },
+  { delay: 7400, cls: '', text: '→ mapping to AWARE™ schema' },
+  { delay: 7900, cls: 'cli-ok', text: '✓ schema mapping complete · ready for review' },
+];
+
+const linesContainer = document.getElementById('cli-lines');
+cliLines.forEach((l, i) => {
+  setTimeout(() => {
+    const div = document.createElement('div');
+    div.className = 'cli-line ' + (l.cls || '');
+    div.innerHTML = `<span class="cli-prefix">$</span><span>${l.text}</span>`;
+    linesContainer.appendChild(div);
+    requestAnimationFrame(() => div.classList.add('visible'));
+    if (i === cliLines.length - 1) {
+      setTimeout(() => {
+        document.getElementById('cli-status-text').textContent = 'Review ready — 3 items need your attention.';
+        document.getElementById('cli-continue-btn').style.display = 'inline-block';
+      }, 400);
+    }
+  }, l.delay);
+});
+
+function showReview() {
+  document.getElementById('cli-screen').style.display = 'none';
+  document.getElementById('review-screen').style.display = 'block';
+  document.getElementById('step-processing').className = 'done';
+  document.getElementById('step-review').className = 'active';
+}
+
+// ── REVIEW LOGIC ──
+const resolved = { cert: false, weight: false, date: false };
+const resolvedValues = {};
+
+function updateState() {
+  const done = Object.values(resolved).filter(Boolean).length;
+  const confirmed = 28 + done;
+  const remaining = 3 - done;
+  document.getElementById('confirmed-val').textContent = confirmed;
+  document.getElementById('action-val').textContent = remaining;
+  const pct = Math.round((confirmed / 31) * 100);
+  document.getElementById('prog-label').textContent = `${confirmed} of 31 fields confirmed`;
+  document.getElementById('prog-pct').textContent = pct + '%';
+  document.getElementById('prog-bar').style.width = pct + '%';
+  document.getElementById('approve-btn').disabled = done < 3;
+  if (done === 3) document.getElementById('approve-sub').textContent = 'All fields confirmed. Review the summary below before sending.';
+}
+
+function markResolved(key, value, src) {
+  resolved[key] = true;
+  resolvedValues[key] = { value, src };
+  const card = document.getElementById('card-' + key);
+  card.classList.remove('fl', 'fe');
+  card.classList.add('fok');
+  const badge = document.getElementById(key + '-badge');
+  badge.className = 'badge b-green'; badge.textContent = 'Confirmed';
+  const chk = document.getElementById('chk-' + key);
+  if (chk) { chk.className = 'badge b-green'; chk.textContent = 'Done'; }
+  const confirmedEl = document.getElementById(key + '-confirmed');
+  confirmedEl.style.display = 'flex';
+  const mainEl = document.getElementById(key + '-card-main') || document.getElementById('card-' + key).querySelector('.card-main');
+  if (mainEl) mainEl.style.display = 'none';
+  const ctxEl = card.querySelector('.context-strip');
+  if (ctxEl) ctxEl.style.display = 'none';
+  document.getElementById(key + '-confirmed-val').textContent = value;
+  const srcEl = document.getElementById(key + '-confirmed-src');
+  if (srcEl) srcEl.textContent = src;
+  updateState();
+}
+
+function unresolve(key) {
+  resolved[key] = false;
+  const card = document.getElementById('card-' + key);
+  card.classList.remove('fok');
+  card.classList.add(key === 'cert' ? 'fe' : 'fl');
+  const badge = document.getElementById(key + '-badge');
+  badge.className = key === 'cert' ? 'badge b-red' : 'badge b-amber';
+  badge.textContent = key === 'cert' ? 'Missing' : (key === 'weight' ? 'Conflict' : 'Needs review');
+  const chk = document.getElementById('chk-' + key);
+  if (chk) { chk.className = key === 'cert' ? 'badge b-red' : 'badge b-amber'; chk.textContent = key === 'cert' ? 'Missing' : (key === 'weight' ? 'Conflict' : 'Review'); }
+  document.getElementById(key + '-confirmed').style.display = 'none';
+  const mainEl = document.getElementById(key + '-card-main') || document.getElementById('card-' + key).querySelector('.card-main');
+  if (mainEl) mainEl.style.display = 'block';
+  const ctxEl = card.querySelector('.context-strip');
+  if (ctxEl) ctxEl.style.display = 'block';
+  const actionsEl = document.getElementById(key + '-actions');
+  if (actionsEl) actionsEl.style.display = 'flex';
+  const customEl = document.getElementById(key + '-custom');
+  if (customEl) customEl.style.display = 'none';
+  updateState();
+}
+
+function resolve(key, inputId) {
+  const val = document.getElementById(inputId).value.trim();
+  if (!val) return;
+  markResolved(key, val, 'Manually entered');
+}
+
+function resolveChoice(key, value, src) {
+  markResolved(key, value, src);
+}
+
+function resolveFromInput(key, inputId, suffix, src) {
+  const val = document.getElementById(inputId).value.trim();
+  if (!val) return;
+  markResolved(key, val + suffix, src);
+}
+
+function showCustomField(customId, actionsId) {
+  document.getElementById(customId).style.display = 'block';
+  document.getElementById(actionsId).style.display = 'none';
+}
+
+function checkBtn(inputId, btnId) {
+  document.getElementById(btnId).disabled = document.getElementById(inputId).value.trim().length < 2;
+}
+
+function openModal() {
+  const fields = document.getElementById('modal-fields');
+  fields.innerHTML = '';
+  const summary = [
+    { label: 'Certifying body', val: resolvedValues.cert?.value || '—' },
+    { label: 'Batch weight', val: resolvedValues.weight?.value || '—' },
+    { label: 'Production date', val: resolvedValues.date?.value || '—' },
+    { label: 'Batches', val: '47' },
+    { label: 'Total fields', val: '31' },
+    { label: 'Destination', val: 'AWARE™ supplier profile' },
+  ];
+  summary.forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'modal-field-row';
+    row.innerHTML = `<span class="modal-field-label">${s.label}</span><span class="modal-field-val">${s.val}</span>`;
+    fields.appendChild(row);
+  });
+  document.getElementById('confirm-modal').classList.add('open');
+}
+
+function closeModal() { document.getElementById('confirm-modal').classList.remove('open'); }
+
+function handleApprove() {
+  closeModal();
+  const btn = document.getElementById('approve-btn');
+  btn.textContent = 'Sending to AWARE™...';
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = 'Sent successfully'; btn.style.background = '#0d4a34'; }, 1400);
+}
+
+updateState();
+</script>
+</body>
+</html>
