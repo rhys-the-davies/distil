@@ -1,8 +1,59 @@
 # Distil — data flow
 
 This document describes the four-layer architecture
-introduced in the structured-export feature. It is
-written for contributing developers.
+and the mode-driven pipeline branching introduced in
+the mode-picker feature. It is written for contributing
+developers.
+
+---
+
+## Modes
+
+Distil has two live modes, selected on the upload screen:
+
+**Find issues** — the user has structured data and wants
+to find and fix quality problems. Input: CSV and Excel.
+
+**Structure** — the user has messy files and wants clean
+structured output. Input: CSV, Excel, and plain text
+(including WhatsApp exports).
+
+The selected mode is stored in `lib/store.ts` and sent
+as a `mode` field in the `/api/extract` form data.
+
+---
+
+## Mode-driven pipeline branching
+
+```
+/api/extract (thin route handler — app/api/extract/route.ts)
+  → parseFiles()           shared: parses all files by extension
+  → runObservationForAll() shared: Pass 0, Claude (lib/observation.ts)
+  → if mode === 'find-issues':
+      → lib/pipelines/find-issues.ts
+         Pass 1: profiler (lib/profiler.ts)
+         Pass 2: Claude interpretation (prompts/review.md)
+         Returns: fields[], parsedRows, offendingCells, sampleRows
+  → if mode === 'structure':
+      → tabular files (CSV/XLSX):
+         lib/pipelines/structure-tabular.ts
+         Pass 1: profiler (same as find-issues)
+         Pass 2: Claude normalisation (prompts/structure.md)
+         Clean columns: generated directly from rows (no Claude)
+         Returns: fields[] (no parsedRows)
+         Row limit: 50 rows per file (explicit, never silent)
+      → text files (TXT/WhatsApp):
+         lib/pipelines/structure-text.ts
+         Claude full extraction (prompts/structure.md)
+         Returns: fields[] with recordIndex set by Claude
+         Size limit: 40,000 chars (truncated with note)
+```
+
+**Key difference between modes:**
+- Find issues produces `parsedRows` — the original rows are
+  sent to the client and corrected on download.
+- Structure produces `fields[]` with `recordIndex` — rows are
+  derived from fields at export time via `fieldsToRows()`.
 
 ---
 

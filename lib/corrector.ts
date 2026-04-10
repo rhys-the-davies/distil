@@ -1,4 +1,4 @@
-import type { ColumnReview } from '@/types/field'
+import type { ColumnReview, Field } from '@/types/field'
 
 /**
  * Check whether a value is empty (null, undefined,
@@ -73,4 +73,32 @@ export function applyCorrections(
   }
 
   return result
+}
+
+/**
+ * Convert a Field[] (extraction mode output) into row objects for CSV/JSON export.
+ * Groups fields by recordIndex, sorts groups ascending, maps each group to
+ * a { label: value } row object using resolvedValue > interpretedValue > rawValue.
+ * Fields with no recordIndex are all placed in record 0.
+ */
+export function fieldsToRows(
+  fields: Field[]
+): Record<string, string>[] {
+  const groups = new Map<number, Field[]>()
+  for (const field of fields) {
+    const idx = field.recordIndex ?? 0
+    if (!groups.has(idx)) groups.set(idx, [])
+    groups.get(idx)!.push(field)
+  }
+  const sorted = Array.from(groups.entries()).sort(([a], [b]) => a - b)
+  return sorted.map(([, group]) => {
+    const row: Record<string, string> = {}
+    for (const field of group) {
+      row[field.label] =
+        field.resolvedValue ??
+        field.interpretedValue ??
+        field.rawValue ?? ''
+    }
+    return row
+  })
 }

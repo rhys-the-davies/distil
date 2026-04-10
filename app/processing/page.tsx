@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import StepFeed, { type Step } from '@/components/StepFeed'
-import { getPendingFiles, getSessionId, setExtractionPayload, clearAll } from '@/lib/store'
+import { getPendingFiles, getSessionId, getMode, setExtractionPayload, clearAll } from '@/lib/store'
 import type { ExtractionPayload } from '@/types/field'
 
 // ── Error classification ─────────────────────────────────────────────────────
@@ -164,6 +164,7 @@ export default function ProcessingPage() {
       for (const f of files) formData.append('files', f)
       const sid = getSessionId()
       if (sid) formData.append('sessionId', sid)
+      formData.append('mode', getMode())
 
       try {
         const res = await fetch('/api/extract', {

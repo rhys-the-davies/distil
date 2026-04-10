@@ -3,10 +3,13 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DropZone from '@/components/DropZone'
-import { setPendingFiles, setSessionId } from '@/lib/store'
+import ModePicker from '@/components/ModePicker'
+import { setPendingFiles, setSessionId, setMode as setModeInStore } from '@/lib/store'
+import type { DistilMode } from '@/types/field'
 
 export default function UploadPage() {
   const [files, setFiles] = useState<File[]>([])
+  const [mode, setMode] = useState<DistilMode>('find-issues')
   const router = useRouter()
 
   // Generate a fresh session ID each time the upload screen mounts.
@@ -15,10 +18,26 @@ export default function UploadPage() {
     setSessionId(crypto.randomUUID())
   }, [])
 
+  function handleModeChange(newMode: DistilMode) {
+    setMode(newMode)
+    setFiles([])
+  }
+
+  const acceptedFormats =
+    mode === 'structure'
+      ? ['.xlsx', '.xls', '.csv', '.txt']
+      : ['.xlsx', '.xls', '.csv']
+
+  const rejectionMessage =
+    mode === 'structure'
+      ? 'Supported: CSV, Excel, and plain text (.txt) files.'
+      : 'Only CSV and Excel files are supported in Find issues mode.'
+
   const canProceed = files.length > 0
 
   function handleExtract() {
     if (!canProceed) return
+    setModeInStore(mode)
     setPendingFiles(files)
     router.push('/processing')
   }
@@ -184,8 +203,16 @@ export default function UploadPage() {
           </div>
         </div>
 
+        {/* Mode picker */}
+        <ModePicker selected={mode} onChange={handleModeChange} />
+
         {/* Drop zone */}
-        <DropZone files={files} onFilesChange={setFiles} />
+        <DropZone
+          files={files}
+          onFilesChange={setFiles}
+          acceptedExtensions={acceptedFormats}
+          rejectionMessage={rejectionMessage}
+        />
 
         {/* CTA */}
         <div style={{ marginTop: '24px' }}>

@@ -8,3 +8,7 @@ export function getReviewPrompt(): string {
 export function getObservePrompt(): string {
   return fs.readFileSync(path.join(process.cwd(), 'prompts/observe.md'), 'utf-8')
 }
+
+export function getStructurePrompt(): string {
+  return fs.readFileSync(path.join(process.cwd(), 'prompts/structure.md'), 'utf-8')
+}

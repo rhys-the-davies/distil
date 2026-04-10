@@ -1,26 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Papa from 'papaparse'
 import JSZip from 'jszip'
-import { applyCorrections } from '@/lib/corrector'
-import type { ColumnReview } from '@/types/field'
+import { applyCorrections, fieldsToRows } from '@/lib/corrector'
+import type { ColumnReview, Field } from '@/types/field'
 
 export async function POST(request: NextRequest) {
-  let body: { parsedRows?: unknown; format?: unknown; reviews?: unknown }
+  let body: { parsedRows?: unknown; fields?: unknown; format?: unknown; reviews?: unknown }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 
-  const { parsedRows: rawParsedRows, format, reviews: rawReviews } = body
+  const { parsedRows: rawParsedRows, fields: rawFields, format, reviews: rawReviews } = body
 
-  if (
-    !rawParsedRows ||
-    typeof rawParsedRows !== 'object' ||
-    Array.isArray(rawParsedRows)
-  ) {
-    return NextResponse.json({ error: 'Missing parsedRows' }, { status: 400 })
-  }
   if (format !== 'csv' && format !== 'json') {
     return NextResponse.json(
       { error: 'Invalid format — must be csv or json' },
@@ -28,24 +21,29 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const storedData = rawParsedRows as Record<string, Record<string, unknown>[]>
   const reviews = Array.isArray(rawReviews) ? (rawReviews as ColumnReview[]) : []
 
   try {
-    // Apply corrections per file
-    const correctedFiles: Array<{
-      filename: string
-      rows: Record<string, unknown>[]
-    }> = []
+    let correctedFiles: Array<{ filename: string; rows: Record<string, unknown>[] }>
 
-    for (const [filename, rows] of Object.entries(storedData)) {
-      const fileReviews = reviews.filter((r) => r.sourceFile === filename)
-      const corrected = applyCorrections(rows, fileReviews)
-      correctedFiles.push({ filename, rows: corrected })
+    // Find-issues path: parsedRows present → apply ColumnReview corrections
+    if (
+      rawParsedRows &&
+      typeof rawParsedRows === 'object' &&
+      !Array.isArray(rawParsedRows) &&
+      Object.keys(rawParsedRows as object).length > 0
+    ) {
+      const storedData = rawParsedRows as Record<string, Record<string, unknown>[]>
+      correctedFiles = Object.entries(storedData).map(([filename, rows]) => ({
+        filename,
+        rows: applyCorrections(rows, reviews.filter((r) => r.sourceFile === filename)),
+      }))
+    } else {
+      // Structure mode path: derive rows from Field[] via fieldsToRows()
+      const fields = Array.isArray(rawFields) ? (rawFields as Field[]) : []
+      const rows = fieldsToRows(fields)
+      correctedFiles = [{ filename: 'distil-export', rows }]
     }
-
-    // Column order is preserved because Object.keys() returns keys in insertion
-    // order, and the rows were parsed deterministically from the original file.
 
     if (format === 'json') {
       const json = JSON.stringify(correctedFiles, null, 2)
@@ -60,7 +58,6 @@ export async function POST(request: NextRequest) {
     // CSV — single file
     if (correctedFiles.length === 1) {
       const { filename, rows } = correctedFiles[0]
-      // Derive headers from first row to preserve original column order
       const headers = rows.length > 0 ? Object.keys(rows[0]) : []
       const csv = Papa.unparse({ fields: headers, data: rows })
       const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -77,7 +74,6 @@ export async function POST(request: NextRequest) {
     for (const { filename, rows } of correctedFiles) {
       const headers = rows.length > 0 ? Object.keys(rows[0]) : []
       const csv = Papa.unparse({ fields: headers, data: rows })
-      // Normalise to .csv extension regardless of original (.xlsx etc.)
       const csvName = filename.replace(/\.[^.]+$/, '.csv')
       zip.file(`distil-${csvName}`, csv)
     }

@@ -1,5 +1,6 @@
 export type FieldStatus = 'clean' | 'review' | 'conflict' | 'missing'
 export type FieldConfidence = 'high' | 'medium' | 'low' | 'none'
+export type DistilMode = 'find-issues' | 'structure' | 'follow-schema'
 
 export interface ConflictSource {
   file: string
@@ -34,6 +35,7 @@ export interface Field {
   conflict?: FieldConflict
   resolvedValue?: string     // set client-side when user confirms a value
   resolvedSource?: string    // set client-side when user confirms a source
+  recordIndex?: number       // zero-based; groups extraction fields into rows for CSV export
   source?: 'profiler' | 'extraction'
   // Set only when source === 'profiler' — drives ColumnCard rendering
   flagType?: import('@/types/profiler').ProfilerFlagType

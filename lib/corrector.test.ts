@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { applyCorrections, isEmpty } from './corrector'
-import type { ColumnReview } from '@/types/field'
+import { applyCorrections, isEmpty, fieldsToRows } from './corrector'
+import type { ColumnReview, Field } from '@/types/field'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -289,5 +289,101 @@ describe('applyCorrections — formatRule', () => {
     }
     const result = applyCorrections(rows, [review])
     expect(result.map(r => r.color)).toEqual(['green', 'Green', 'GREEN'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// fieldsToRows
+// ---------------------------------------------------------------------------
+
+function makeField(overrides: Partial<Field> & { id: string; label: string }): Field {
+  return {
+    status: 'clean',
+    confidence: 'high',
+    confidenceReason: null,
+    rawValue: null,
+    interpretedValue: null,
+    sourceFile: null,
+    sourceLocation: null,
+    required: false,
+    source: 'extraction',
+    ...overrides,
+  }
+}
+
+describe('fieldsToRows', () => {
+  it('returns empty array for empty input', () => {
+    expect(fieldsToRows([])).toEqual([])
+  })
+
+  it('groups fields by recordIndex correctly', () => {
+    const fields: Field[] = [
+      makeField({ id: 'name', label: 'Name', recordIndex: 0, interpretedValue: 'Alice' }),
+      makeField({ id: 'age', label: 'Age', recordIndex: 0, interpretedValue: '30' }),
+      makeField({ id: 'name', label: 'Name', recordIndex: 1, interpretedValue: 'Bob' }),
+      makeField({ id: 'age', label: 'Age', recordIndex: 1, interpretedValue: '25' }),
+    ]
+    const rows = fieldsToRows(fields)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toEqual({ Name: 'Alice', Age: '30' })
+    expect(rows[1]).toEqual({ Name: 'Bob', Age: '25' })
+  })
+
+  it('sorts records by recordIndex, not insertion order', () => {
+    const fields: Field[] = [
+      makeField({ id: 'name', label: 'Name', recordIndex: 2, interpretedValue: 'Charlie' }),
+      makeField({ id: 'name', label: 'Name', recordIndex: 0, interpretedValue: 'Alice' }),
+      makeField({ id: 'name', label: 'Name', recordIndex: 1, interpretedValue: 'Bob' }),
+    ]
+    const rows = fieldsToRows(fields)
+    expect(rows[0]).toEqual({ Name: 'Alice' })
+    expect(rows[1]).toEqual({ Name: 'Bob' })
+    expect(rows[2]).toEqual({ Name: 'Charlie' })
+  })
+
+  it('uses resolvedValue over interpretedValue over rawValue', () => {
+    const field = makeField({
+      id: 'color',
+      label: 'Color',
+      recordIndex: 0,
+      rawValue: 'raw',
+      interpretedValue: 'interpreted',
+      resolvedValue: 'resolved',
+    })
+    const rows = fieldsToRows([field])
+    expect(rows[0].Color).toBe('resolved')
+  })
+
+  it('falls back to interpretedValue when no resolvedValue', () => {
+    const field = makeField({
+      id: 'color',
+      label: 'Color',
+      recordIndex: 0,
+      rawValue: 'raw',
+      interpretedValue: 'interpreted',
+    })
+    const rows = fieldsToRows([field])
+    expect(rows[0].Color).toBe('interpreted')
+  })
+
+  it('falls back to rawValue when no resolvedValue or interpretedValue', () => {
+    const field = makeField({
+      id: 'color',
+      label: 'Color',
+      recordIndex: 0,
+      rawValue: 'raw',
+    })
+    const rows = fieldsToRows([field])
+    expect(rows[0].Color).toBe('raw')
+  })
+
+  it('fields with no recordIndex all go to record 0', () => {
+    const fields: Field[] = [
+      makeField({ id: 'a', label: 'A', interpretedValue: 'x' }),
+      makeField({ id: 'b', label: 'B', interpretedValue: 'y' }),
+    ]
+    const rows = fieldsToRows(fields)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toEqual({ A: 'x', B: 'y' })
   })
 })

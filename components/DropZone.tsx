@@ -3,16 +3,12 @@
 import { useRef, useState, useCallback } from 'react'
 import FileList from './FileList'
 
-const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv']
+const DEFAULT_ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv']
 const MAX_FILE_SIZE = 50 * 1024 // 50 KB
 
 function getExtension(filename: string): string {
   const idx = filename.lastIndexOf('.')
   return idx === -1 ? '' : filename.slice(idx).toLowerCase()
-}
-
-function isAccepted(file: File): boolean {
-  return ACCEPTED_EXTENSIONS.includes(getExtension(file.name))
 }
 
 function isTooLarge(file: File): boolean {
@@ -22,12 +18,27 @@ function isTooLarge(file: File): boolean {
 interface DropZoneProps {
   files: File[]
   onFilesChange: (files: File[]) => void
+  acceptedExtensions?: string[]
+  rejectionMessage?: string
 }
 
-export default function DropZone({ files, onFilesChange }: DropZoneProps) {
+export default function DropZone({
+  files,
+  onFilesChange,
+  acceptedExtensions = DEFAULT_ACCEPTED_EXTENSIONS,
+  rejectionMessage,
+}: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const isAccepted = useCallback(
+    (file: File) => acceptedExtensions.includes(getExtension(file.name)),
+    [acceptedExtensions]
+  )
+
+  const defaultRejectionMessage = rejectionMessage ??
+    'Only CSV and Excel files are supported. Plain text and WhatsApp support is coming soon.'
 
   const addFiles = useCallback(
     (incoming: FileList | File[]) => {
@@ -41,9 +52,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
           'This file is too large — please keep files under 50KB for now.'
         )
       } else if (wrongType.length > 0) {
-        setError(
-          'Only CSV and Excel files are supported. Plain text and WhatsApp support is coming soon.'
-        )
+        setError(defaultRejectionMessage)
       } else {
         setError(null)
       }
@@ -54,7 +63,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
         onFilesChange([...files, ...newFiles])
       }
     },
-    [files, onFilesChange]
+    [files, onFilesChange, isAccepted, defaultRejectionMessage]
   )
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -158,7 +167,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
             color: 'var(--color-text-muted)',
           }}
         >
-          .xlsx · .xls · .csv
+          {acceptedExtensions.join(' · ')}
         </p>
       </div>
 
@@ -185,7 +194,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
         ref={inputRef}
         type="file"
         multiple
-        accept=".xlsx,.xls,.csv"
+        accept={acceptedExtensions.join(',')}
         onChange={handleInputChange}
         style={{ display: 'none' }}
         tabIndex={-1}

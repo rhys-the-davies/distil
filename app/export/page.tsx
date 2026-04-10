@@ -7,8 +7,8 @@ import {
   getColumnReviews,
   clearAll,
 } from '@/lib/store'
-import { applyCorrections } from '@/lib/corrector'
-import type { ExtractionPayload, ColumnReview } from '@/types/field'
+import { applyCorrections, fieldsToRows } from '@/lib/corrector'
+import type { ExtractionPayload, ColumnReview, Field } from '@/types/field'
 
 type ExportFormat = 'csv' | 'json'
 
@@ -65,6 +65,33 @@ function buildJsonPreview(
   return `[\n  ${JSON.stringify(record, null, 2).replace(/\n/g, '\n  ')}${tail}\n]`
 }
 
+function buildCsvPreviewFromFields(
+  fields: Field[],
+  maxRows: number
+): CsvPreview {
+  const rows = fieldsToRows(fields)
+  const preview = rows.slice(0, maxRows)
+  const headers = preview.length > 0 ? Object.keys(preview[0]) : []
+  const totalCols = headers.length
+  const visible = headers.slice(0, PREVIEW_MAX_COLS)
+  return {
+    headers: visible,
+    rows: preview.map((row) => visible.map((h) => String(row[h] ?? ''))),
+    totalCols,
+  }
+}
+
+function buildJsonPreviewFromFields(fields: Field[], totalRows: number): string {
+  const rows = fieldsToRows(fields)
+  const record = rows[0] ?? {}
+  const remaining = totalRows - 1
+  const tail =
+    remaining > 0
+      ? `,\n  // ${remaining} more record${remaining !== 1 ? 's' : ''}…`
+      : ''
+  return `[\n  ${JSON.stringify(record, null, 2).replace(/\n/g, '\n  ')}${tail}\n]`
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ExportPage() {
@@ -98,7 +125,7 @@ export default function ExportPage() {
       const res = await fetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parsedRows: payload.parsedRows ?? {}, format, reviews }),
+        body: JSON.stringify({ parsedRows: payload.parsedRows ?? {}, fields: payload.fields, format, reviews }),
       })
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: string }
@@ -128,13 +155,19 @@ export default function ExportPage() {
   // ── Derived values ──────────────────────────────────────────────────────────
 
   const sampleRows = payload.sampleRows ?? {}
+  const hasSampleRows = Object.keys(sampleRows).length > 0
   const totalRows = payload.summary.totalRows
 
   // Count distinct columns across all files
-  const totalCols = Object.values(sampleRows).reduce((max, rows) => {
-    const cols = rows.length > 0 ? Object.keys(rows[0]).length : 0
-    return Math.max(max, cols)
-  }, 0)
+  const totalCols = hasSampleRows
+    ? Object.values(sampleRows).reduce((max, rows) => {
+        const cols = rows.length > 0 ? Object.keys(rows[0]).length : 0
+        return Math.max(max, cols)
+      }, 0)
+    : (() => {
+        const rows = fieldsToRows(payload.fields)
+        return rows.length > 0 ? Object.keys(rows[0]).length : 0
+      })()
 
   // Corrections count — accounts for two special cases:
   //   rowIndex: -1 sentinel  → one correction entry that applies to every row
@@ -156,8 +189,12 @@ export default function ExportPage() {
       return sum + count
     }, 0)
 
-  const csvPreview = buildCsvPreview(sampleRows, reviews)
-  const jsonPreview = buildJsonPreview(sampleRows, reviews, totalRows)
+  const csvPreview = hasSampleRows
+    ? buildCsvPreview(sampleRows, reviews)
+    : buildCsvPreviewFromFields(payload.fields, PREVIEW_ROWS)
+  const jsonPreview = hasSampleRows
+    ? buildJsonPreview(sampleRows, reviews, totalRows)
+    : buildJsonPreviewFromFields(payload.fields, totalRows)
 
   const downloadLabel = downloading
     ? 'Preparing download…'

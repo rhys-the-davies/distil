@@ -3,12 +3,13 @@
 // the upload → processing handoff. This lives only for the browser tab session.
 // The spec permits sessionStorage only for the screen 3 → 4 payload.
 
-import type { ExtractionPayload, ColumnReview } from '@/types/field'
+import type { ExtractionPayload, ColumnReview, DistilMode } from '@/types/field'
 
 let pendingFiles: File[] = []
 let extractionPayload: ExtractionPayload | null = null
 let columnReviewStore: ColumnReview[] = []
 let sessionId: string | null = null
+let distilMode: DistilMode = 'find-issues'
 
 export function setPendingFiles(files: File[]) {
   pendingFiles = files
@@ -46,9 +47,18 @@ export function getColumnReviews(): ColumnReview[] {
   return columnReviewStore
 }
 
+export function setMode(mode: DistilMode): void {
+  distilMode = mode
+}
+
+export function getMode(): DistilMode {
+  return distilMode
+}
+
 export function clearAll() {
   pendingFiles = []
   extractionPayload = null
   columnReviewStore = []
   sessionId = null
+  distilMode = 'find-issues'
 }
