@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Distil is an open-source tool that turns messy, unstructured data into clean, structured output. Users upload spreadsheets, CSV files, and WhatsApp chat exports. Distil parses the files, uses Claude to extract and normalise data fields, flags conflicts and quality issues, and presents a human review interface before producing a clean downloadable file.
+Distil is an open-source tool that turns messy, unstructured data into clean, structured output. Users upload spreadsheets and CSV files. Distil profiles the data deterministically, uses Claude only for what code cannot resolve, flags conflicts and quality issues, and presents a human review interface before producing a clean downloadable file.
 
 The target user is anyone with useful data trapped in inconsistent formats — factory managers, ops teams, researchers, or anyone inheriting legacy data they didn't create. The interface must be operable without any understanding of APIs, data schemas, or structured data.
 
@@ -90,7 +90,7 @@ Copy the following CSS custom properties block exactly into `app/globals.css`. T
 - **Framework:** Next.js (App Router)
 - **Styling:** Tailwind CSS with brand tokens from `AWARE-BRAND.md` configured in `tailwind.config.ts`
 - **AI:** Anthropic Claude API (`claude-sonnet-4-5` via `@anthropic-ai/sdk`)
-- **File parsing:** `xlsx` (spreadsheets), `papaparse` (CSV), native string parsing (WhatsApp `.txt`)
+- **File parsing:** `xlsx` (spreadsheets), `papaparse` (CSV)
 - **Storage:** None. Files are parsed in memory on the server and discarded after extraction. No filesystem writes, no database.
 - **Hosting:** Vercel
 - **Auth:** None for MVP — the portal runs at a single URL, accessible to anyone with the link
@@ -328,11 +328,10 @@ No Claude involvement in file type detection or parsing. Each supported format h
 |---|---|---|---|
 | Excel | `.xlsx`, `.xls` | `xlsx` npm package | Extract all sheets as arrays of row objects |
 | CSV | `.csv` | `papaparse` | Header row auto-detection enabled |
-| WhatsApp | `.txt` | `lib/parsers/whatsapp.ts` | Handle both iOS format (`DD/MM/YYYY, HH:MM`) and Android format (`M/D/YY, HH:MM`) |
 
-**Parse failure:** If a single file fails to parse, record the error for that file and continue with remaining files. The failed file is excluded from the Claude prompt with a note that it could not be read. Do not block the session on a single file failure.
+**Parse failure:** If a single file fails to parse, record the error for that file and continue with remaining files. The failed file is excluded from the profiler with a note that it could not be read. Do not block the session on a single file failure.
 
-**Unsupported formats:** Rejected at the `DropZone` with an inline error message. Never reach the server.
+**Unsupported formats:** `.txt` and all other formats are rejected at the `DropZone` with the message: "Only CSV and Excel files are supported. Plain text and WhatsApp support is coming soon." Never reach the server.
 
 ---
 
@@ -359,6 +358,180 @@ export const FIELD_SCHEMA: FieldDefinition[] = []
 // When empty, Claude extracts all recognisable fields from source files.
 // When populated, Claude maps extracted values to the provided field IDs.
 ```
+
+---
+
+## Observation pass — Pass 0
+
+### Purpose
+A lightweight Claude call that characterises each file before the profiler runs. It gives the profiler domain context it cannot derive from column statistics alone, and gives the interpretation pass prior knowledge so it does not have to re-read the full file.
+
+### What it produces
+A `FileCharacterisation` object per file:
+
+```typescript
+// types/profiler.ts (partial)
+export interface FileCharacterisation {
+  fileType: string            // e.g. "product catalogue", "supplier visit log"
+  domain: string              // e.g. "retail", "manufacturing", "logistics"
+  primaryKeyColumn: string | null  // column that uniquely identifies each row
+  columnRoles: Record<string, string>  // e.g. { "Color": "variant", "Brand": "constant" }
+  notes: string[]             // any observations relevant to profiling
+}
+```
+
+### How it works
+`lib/prompts.ts` exports `getObservePrompt()` which loads `prompts/observe.md`. The observation call receives:
+- The column headers
+- Row count
+- 3 sample rows
+- File name
+
+It does not receive the full file content. Max tokens: 512. It always returns valid JSON only.
+
+### Prompt file: `prompts/observe.md`
+```
+You are characterising a data file to help a downstream profiler and extraction system understand it.
+
+You will receive: column headers, row count, and 3 sample rows.
+
+Return a JSON object with:
+- fileType: a short plain-English description of what this file contains
+- domain: the general subject area or industry
+- primaryKeyColumn: the column name that appears to uniquely identify each row, or null if none
+- columnRoles: a flat object mapping column names to one of: "identifier", "variant", "constant", "measurement", "date", "status", "flag", "free_text", "unknown"
+- notes: an array of short plain-English observations relevant to data quality analysis
+
+Return valid JSON only. No preamble, no markdown fences. No extraction — characterisation only.
+```
+
+### Design principle
+This file is designed to be iterated on. As Distil encounters more file types, `prompts/observe.md` should be updated to improve characterisation accuracy. The `FileCharacterisation` type in `types/profiler.ts` can be extended with new fields without breaking downstream consumers.
+
+---
+
+## Data profiler — Pass 1
+
+### Purpose
+Deterministic code analysis of structured file data. Runs after the observation pass. Produces a complete quality profile of each file without any AI involvement. Claude receives only the profiler's flagged issues — never the full file.
+
+### Config file: `lib/profiler-config.ts`
+All thresholds live here as named constants with comments. This file is the single place to adjust profiler sensitivity.
+
+```typescript
+// lib/profiler-config.ts
+// Threshold constants for the Distil data profiler.
+// Each constant is named for what it controls.
+// Adjust here only — do not hardcode thresholds elsewhere.
+
+export const OUTLIER_STD_DEVIATIONS = 3
+// Numeric values more than this many standard deviations from the column mean are flagged as outliers.
+// Higher = less sensitive. Lower = more sensitive.
+
+export const MIN_CAPITALISATION_VARIANTS = 2
+// Flag capitalisation inconsistency if a column contains this many or more distinct
+// capitalisation variants of what appear to be the same value.
+// e.g. GREEN, Green, green = 3 variants → flagged at threshold 2
+
+export const PLACEHOLDER_VALUES = [
+  'n/a', 'na', 'null', 'nil', 'none', 'tbc', 'tbd', 'tba',
+  'unknown', 'pending', 'todo', 'to do', '-', '--', '---',
+  '_', '__', '?', '??', '#n/a', '#null!', '#value!', '#ref!',
+  '(blank)', '[blank]', '[empty]', '[none]'
+]
+// Case-insensitive. Whitespace-trimmed before comparison.
+// Add new placeholder patterns here as they are discovered in real data.
+```
+
+### What the profiler detects
+
+For each column in a structured file, the profiler runs the following checks. Each check that triggers produces one flag — never one flag per row.
+
+**Empty cells**
+Count of null, empty string, or whitespace-only values in the column. If count > 0: one flag — "N of total rows are empty."
+
+**Placeholder values**
+Count of values matching `PLACEHOLDER_VALUES` (case-insensitive). If count > 0: one flag — "N of total rows contain placeholder values (e.g. N/A)."
+
+**Entire column empty or placeholder**
+If 100% of rows are empty: one flag — "Entire column is empty."
+If 100% of rows are placeholders: one flag — "Entire column contains placeholder values."
+These are distinct from partial flags — they indicate structural gaps, not data quality issues.
+
+**Capitalisation inconsistency**
+For string columns: detect distinct capitalisation variants of values that appear to be the same string. If variants >= `MIN_CAPITALISATION_VARIANTS`: one flag per column listing the variants and their counts.
+
+**Numeric outliers**
+For numeric columns: calculate mean and standard deviation. Flag any value more than `OUTLIER_STD_DEVIATIONS` SD from the mean. One flag per outlier value (not per occurrence). Does not apply to date columns.
+
+**Mixed types**
+Columns where values are inconsistently typed — some numeric, some string, some date-like. One flag listing the type distribution and sample values of each type.
+
+**Duplicate rows**
+Flag if two or more rows are identical across all columns. One flag with count.
+
+**Truncated values**
+Values ending in `...` or `…`. One flag per column with count.
+
+### What the profiler does not do
+- Does not modify values
+- Does not silently correct anything
+- Does not apply to date columns for outlier detection
+- Does not attempt cross-file analysis (see backlog)
+- Does not make judgments about meaning — that is Claude's job in Pass 2
+
+### Output: `ProfilerResult`
+
+```typescript
+// types/profiler.ts (partial)
+
+export type ProfilerFlagType =
+  | 'empty_cells'
+  | 'placeholder_values'
+  | 'entire_column_empty'
+  | 'entire_column_placeholder'
+  | 'capitalisation_inconsistency'
+  | 'numeric_outlier'
+  | 'mixed_types'
+  | 'duplicate_rows'
+  | 'truncated_values'
+
+export interface ProfilerFlag {
+  column: string
+  type: ProfilerFlagType
+  count: number
+  total: number
+  examples: string[]       // up to 3 example values
+  detail: string           // plain-English description for Claude
+}
+
+export interface ColumnProfile {
+  name: string
+  role: string             // from FileCharacterisation.columnRoles
+  dataType: 'string' | 'number' | 'date' | 'boolean' | 'mixed'
+  uniqueValues: number
+  populatedCount: number
+  totalCount: number
+  sampleValues: string[]   // up to 5 representative values
+  flags: ProfilerFlag[]
+}
+
+export interface ProfilerResult {
+  characterisation: FileCharacterisation
+  columns: ColumnProfile[]
+  cleanColumns: string[]   // column names with no flags
+  flaggedColumns: string[] // column names with one or more flags
+  duplicateRowCount: number
+}
+```
+
+### What Claude receives in Pass 2
+Claude does not receive raw file data. It receives:
+- The `FileCharacterisation` from Pass 0
+- The `ProfilerResult` from Pass 1 — specifically the `flaggedColumns` with their `ProfilerFlag` details
+- A summary of clean columns (names and sample values only — no row-by-row data)
+
+This is the minimum context Claude needs to make intelligent judgments about flagged issues. Token usage is a fraction of passing the full file.
 
 ---
 
@@ -518,17 +691,20 @@ components/
 
 lib/
   schema.ts                   FIELD_SCHEMA array — single source of truth
-  prompts.ts                  loads prompts/review.md at runtime, exports getReviewPrompt()
+  prompts.ts                  loads prompt files at runtime, exports getReviewPrompt() and getObservePrompt()
+  profiler.ts                 column profiler — deterministic data quality analysis for structured files
+  profiler-config.ts          threshold constants — named, commented, designed to be iterated on
   parsers/
     xlsx.ts                   Excel parser using xlsx package
     csv.ts                    CSV parser using papaparse
-    whatsapp.ts               WhatsApp .txt parser — handles iOS and Android formats
 
 prompts/
-  review.md                   Claude system prompt — human-editable, version-controlled
+  review.md                   Claude interpretation prompt — human-editable, version-controlled
+  observe.md                  Claude observation prompt for CSV/XLSX — characterises file before profiling
 
 types/
   field.ts                    shared TypeScript interfaces for the field payload
+  profiler.ts                 TypeScript interfaces for profiler output
 ```
 
 ---
@@ -545,12 +721,13 @@ types/
 2. Detect file type by extension, reject unsupported types
 3. Route each file to the appropriate parser in `lib/parsers/`
 4. Record parse failures per file; continue with remaining files
-5. Assemble parsed content and `FIELD_SCHEMA` into the Claude prompt
-6. Load system prompt via `getReviewPrompt()`
-7. Single call to Claude API (`claude-sonnet-4-5`)
-8. Parse and validate JSON response
-9. Merge `required` flag from `FIELD_SCHEMA` into each field object
-10. Return `ExtractionPayload`
+5. **Observation pass (Pass 0):** Call Claude with `getObservePrompt()` and the parsed file summary. Claude returns a `FileCharacterisation` JSON object — file type, domain, primary key column, column roles. This is a cheap, low-token call. Max tokens: 512.
+6. **Profiler pass (Pass 1):** Run `lib/profiler.ts` against the parsed data using the `FileCharacterisation` from Pass 0 as context. Returns a `ProfilerResult` with clean columns, flagged columns, and a list of issues for Claude to interpret.
+7. **Interpretation pass (Pass 2):** Call Claude with `getReviewPrompt()`, the `FileCharacterisation`, and the `ProfilerResult`. Claude receives only the flagged issues — not the full file. Returns `Field[]` for flagged items only.
+8. Merge Pass 2 fields with clean columns from the profiler to produce the full `Field[]` array
+9. Parse and validate JSON response
+10. Merge `required` flag from `FIELD_SCHEMA` into each field object
+11. Return `ExtractionPayload`
 
 ### `/api/download`
 1. Receive resolved `ExtractionPayload` and `format` parameter (`csv` | `json`)

@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback } from 'react'
 import FileList from './FileList'
 
-const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv', '.txt']
+const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv']
 const MAX_FILE_SIZE = 50 * 1024 // 50 KB
 
 function getExtension(filename: string): string {
@@ -41,9 +41,8 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
           'This file is too large — please keep files under 50KB for now.'
         )
       } else if (wrongType.length > 0) {
-        const names = wrongType.map((f) => f.name).join(', ')
         setError(
-          `Unsupported file type${wrongType.length > 1 ? 's' : ''}: ${names}. Accepted formats: .xlsx, .xls, .csv, .txt`
+          'Only CSV and Excel files are supported. Plain text and WhatsApp support is coming soon.'
         )
       } else {
         setError(null)
@@ -159,7 +158,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
             color: 'var(--color-text-muted)',
           }}
         >
-          .xlsx · .xls · .csv · .txt
+          .xlsx · .xls · .csv
         </p>
       </div>
 
@@ -186,7 +185,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
         ref={inputRef}
         type="file"
         multiple
-        accept=".xlsx,.xls,.csv,.txt"
+        accept=".xlsx,.xls,.csv"
         onChange={handleInputChange}
         style={{ display: 'none' }}
         tabIndex={-1}

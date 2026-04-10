@@ -164,3 +164,98 @@ A third sub-option — **Use a platform schema** — is the AWARE™ integration
 - Requires Google Sheets API integration server-side
 
 **Priority:** Post-MVP — CSV download and manual import is a viable workaround for now
+
+---
+
+## Plain text (.txt) and WhatsApp support — reintroduction with two-pass architecture
+
+**Context:** Plain text and WhatsApp support were removed from the MVP because unstructured text requires too much Claude involvement relative to the quality of output. The fundamental problem is that deterministic code cannot reliably extract domain-specific values from free-form text, and passing entire files to Claude is expensive, slow, and produces inconsistent results.
+
+The decision was made to focus the MVP on structured files (CSV, XLSX) where a deterministic profiler can do most of the work before Claude is involved. Plain text and WhatsApp are deferred until the two-pass architecture described below is properly built.
+
+**Why this is worth building:**
+Plain text notes, meeting reports, and WhatsApp exports are exactly where real-world production data lives for non-technical users. A factory manager's data is more likely to be in a WhatsApp thread than a spreadsheet. This is a high-value input type that needs a better architecture to handle well.
+
+**Current implementation (as of MVP):**
+
+The following files exist in the codebase and should be used as the starting point:
+
+- `lib/parsers/whatsapp.ts` — fully implemented. Handles both iOS (`DD/MM/YYYY, HH:MM`) and Android (`M/D/YY, HH:MM AM/PM`) export formats. Detects WhatsApp format via `DETECT_RE` pattern on first 50 lines. Falls back to plain text via `parseTxt()` for non-WhatsApp `.txt` files. Exports `parseWhatsApp`, `parseTxt`, `TxtParseResult`, `PlainTextParseResult`.
+- `app/api/extract/route.ts` — `serializePlainText()` function exists, passes raw content to Claude under a `(Plain Text)` header. This is the function to replace with the two-pass approach.
+- `prompts/review.md` — the Claude system prompt. Currently written for generic extraction. Will need a separate prompt variant for Pass 1 (observation/characterisation) vs Pass 2 (interpretation).
+
+**The two-pass architecture to build:**
+
+**Pass 0 — Claude observation pass (cheap, fast)**
+A separate lightweight Claude call that receives the raw file content and outputs a structured JSON characterisation:
+
+```json
+{
+  "fileType": "supplier visit notes",
+  "domain": "textile manufacturing",
+  "domainEntities": [
+    { "name": "batch reference", "pattern": "STM-YYYY-XXXX" },
+    { "name": "certification", "examples": ["BSCI 2023", "GOTS"] },
+    { "name": "weight", "unit": "kg" }
+  ],
+  "dateFormat": "DD Month YYYY",
+  "knownSources": ["Ahmed Raza", "Leila"],
+  "structuralPatterns": ["Key: Value lines present", "WhatsApp messages present"]
+}
+```
+
+This call should use a short, focused system prompt instructing Claude to characterise only — no extraction, no judgment. Max tokens should be low (512). This is the cheap planning step.
+
+**Pass 1 — Deterministic code extraction**
+Using the characterisation from Pass 0, the code runs targeted extraction:
+- Universal entities (always): dates, emails, phone numbers, URLs, currencies, measurements with standard units
+- Domain entities (from Pass 0): batch references matching the detected pattern, certifications matching known names, etc.
+- Structural patterns (from Pass 0): Key:Value line parsing if detected, WhatsApp message parsing if detected
+- Uncertainty detection: values adjacent to `~`, `approx`, `estimated`, `TBC`, `outstanding`
+- Conflict detection: same entity type appearing with different values (e.g. two weight measurements)
+
+Output: structured extraction result with clean values, flagged values, and unresolved text separated.
+
+**Pass 2 — Claude interpretation pass**
+Claude receives the Pass 0 characterisation plus the Pass 1 structured output. It only processes:
+- Values flagged as uncertain by the code
+- Conflicts detected by the code where the correct value requires judgment
+- Unresolved text that yielded no structured extractions
+
+Claude does not receive the full raw file. It receives an organised payload of genuinely hard problems with prior context already established.
+
+**System prompt variants needed:**
+- `prompts/observe.md` — Pass 0 prompt. Instructs Claude to characterise only, output JSON, no extraction.
+- `prompts/review.md` — existing, update to accept Pass 0 context as additional input parameter.
+
+**New files to create:**
+- `lib/parsers/plaintext.ts` — deterministic extraction for plain text using Pass 0 characterisation as input
+- `lib/passes/observe.ts` — Pass 0 Claude call, returns characterisation JSON
+- Update `lib/parsers/whatsapp.ts` — integrate with Pass 1 extraction pipeline
+
+**Integration point:**
+In `app/api/extract/route.ts`, the `.txt` branch currently calls `parseTxt()` then `serializePlainText()`. Replace with:
+1. Call `observe()` from `lib/passes/observe.ts`
+2. Call `extractPlainText(content, characterisation)` from `lib/parsers/plaintext.ts`
+3. Pass structured output to Claude's interpretation pass as with CSV/XLSX
+
+**Open questions:**
+- Pass 0 adds latency. For a 20-40 second processing screen, adding another 3-5 seconds is probably acceptable but should be measured.
+- Should WhatsApp exports use the same two-pass architecture or is the existing deterministic parser sufficient given the structured format?
+- How do we handle files that Pass 0 cannot characterise (too short, too ambiguous, no recognisable domain)?
+
+**Priority:** High post-profiler — this is the next major feature after the profiler is stable
+
+---
+
+## Profiler — cross-file conflict detection
+
+**Context:** The profiler analyses each file independently. When a user uploads multiple CSV or XLSX files, conflicts between files — the same value appearing differently across sources — are not detected. This was deferred from the initial profiler build.
+
+**What to build:**
+After all files have been profiled individually, a cross-file pass compares columns with the same name across files. For each shared column name, check whether the same identifier (matched via primary key column from `FileCharacterisation`) has different values in different files. Flag as a `cross_file_conflict` with both source files, both values, and the row locations.
+
+**Integration point:**
+In `app/api/extract/route.ts`, after all `ProfilerResult` objects are produced, pass them to a new `lib/profiler-cross.ts` module that returns additional `ProfilerFlag` objects with type `cross_file_conflict`. These merge into the flagged issues sent to Claude in Pass 2.
+
+**Priority:** Post-MVP — add when users report conflicts not being caught across multiple uploaded files
