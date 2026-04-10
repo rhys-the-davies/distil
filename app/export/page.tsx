@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import {
   getExtractionPayload,
   getColumnReviews,
-  getSessionId,
   clearAll,
 } from '@/lib/store'
 import { applyCorrections } from '@/lib/corrector'
@@ -72,7 +71,6 @@ export default function ExportPage() {
   const router = useRouter()
   const [payload, setPayload] = useState<ExtractionPayload | null>(null)
   const [reviews, setReviews] = useState<ColumnReview[]>([])
-  const [sessionId, setSessionIdState] = useState<string | null>(null)
   const [format, setFormat] = useState<ExportFormat>('csv')
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
@@ -85,7 +83,6 @@ export default function ExportPage() {
     }
     setPayload(p)
     setReviews(getColumnReviews())
-    setSessionIdState(getSessionId())
   }, [router])
 
   function handleStartOver() {
@@ -94,14 +91,14 @@ export default function ExportPage() {
   }
 
   async function handleDownload() {
-    if (!payload || !sessionId) return
+    if (!payload) return
     setDownloading(true)
     setDownloadError(null)
     try {
       const res = await fetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, format, reviews }),
+        body: JSON.stringify({ parsedRows: payload.parsedRows ?? {}, format, reviews }),
       })
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: string }

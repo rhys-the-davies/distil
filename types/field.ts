@@ -68,6 +68,9 @@ export interface ExtractionPayload {
       }>
     }
   }
+  parsedRows?: {
+    [filename: string]: Record<string, unknown>[]
+  }
 }
 
 /**

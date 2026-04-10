@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { writeFileSync } from 'fs'
-import { join } from 'path'
 import { getReviewPrompt, getObservePrompt } from '@/lib/prompts'
 import { parseXlsx, type XlsxParseResult } from '@/lib/parsers/xlsx'
 import { parseCsv, type CsvParseResult } from '@/lib/parsers/csv'
@@ -27,16 +25,6 @@ const SUPPORTED_EXTENSIONS = new Set(['.xlsx', '.xls', '.csv'])
 function getExtension(filename: string): string {
   const idx = filename.lastIndexOf('.')
   return idx === -1 ? '' : filename.slice(idx).toLowerCase()
-}
-
-// ── /tmp row storage ──────────────────────────────────────────────────────────
-
-function storeRows(
-  sessionId: string,
-  data: Record<string, Record<string, unknown>[]>
-): void {
-  const path = join('/tmp', `distil-${sessionId}.json`)
-  writeFileSync(path, JSON.stringify(data), 'utf-8')
 }
 
 // ── Parsed file representation ────────────────────────────────────────────────
@@ -391,12 +379,6 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // a) Require sessionId
-  const sessionId = formData.get('sessionId')
-  if (!sessionId || typeof sessionId !== 'string') {
-    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 })
-  }
-
   const uploaded = formData.getAll('files') as File[]
   if (uploaded.length === 0) {
     return NextResponse.json({ error: 'No files provided' }, { status: 400 })
@@ -452,13 +434,6 @@ export async function POST(request: NextRequest) {
       { status: 422 }
     )
   }
-
-  // b) Store full rows to /tmp before any profiler truncation
-  const allParsedData: Record<string, Record<string, unknown>[]> = {}
-  for (const file of parsed) {
-    allParsedData[file.filename] = file.rows
-  }
-  storeRows(sessionId, allParsedData)
 
   // ── Step 2: Pass 0 — Observation (per file, Claude) ───────────────────────
 
@@ -609,10 +584,13 @@ export async function POST(request: NextRequest) {
     fileTypes[filename] = result.type
   }
 
-  // First 3 rows per file — used client-side for the export preview
+  // First 5 rows per file — used client-side for the export preview
   const sampleRows: Record<string, Record<string, unknown>[]> = {}
+  // Full rows per file — sent to client for correction and download
+  const parsedRows: Record<string, Record<string, unknown>[]> = {}
   for (const file of parsed) {
-    sampleRows[file.filename] = file.rows.slice(0, 3)
+    sampleRows[file.filename] = file.rows.slice(0, 5)
+    parsedRows[file.filename] = file.rows
   }
 
   const payload: ExtractionPayload = {
@@ -621,6 +599,7 @@ export async function POST(request: NextRequest) {
     fileTypes,
     offendingCells,
     sampleRows,
+    parsedRows,
   }
 
   return NextResponse.json(payload)

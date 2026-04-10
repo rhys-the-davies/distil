@@ -1,43 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFileSync, unlinkSync } from 'fs'
-import { join } from 'path'
 import Papa from 'papaparse'
 import JSZip from 'jszip'
 import { applyCorrections } from '@/lib/corrector'
 import type { ColumnReview } from '@/types/field'
 
-// ── /tmp helpers ──────────────────────────────────────────────────────────────
-
-function readStoredRows(
-  sessionId: string
-): Record<string, Record<string, unknown>[]> {
-  const path = join('/tmp', `distil-${sessionId}.json`)
-  return JSON.parse(readFileSync(path, 'utf-8'))
-}
-
-function deleteStoredRows(sessionId: string): void {
-  const path = join('/tmp', `distil-${sessionId}.json`)
-  try {
-    unlinkSync(path)
-  } catch {
-    // already gone — no action needed
-  }
-}
-
-// ── Route handler ─────────────────────────────────────────────────────────────
-
 export async function POST(request: NextRequest) {
-  let body: { sessionId?: unknown; format?: unknown; reviews?: unknown }
+  let body: { parsedRows?: unknown; format?: unknown; reviews?: unknown }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 
-  const { sessionId, format, reviews: rawReviews } = body
+  const { parsedRows: rawParsedRows, format, reviews: rawReviews } = body
 
-  if (!sessionId || typeof sessionId !== 'string') {
-    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 })
+  if (
+    !rawParsedRows ||
+    typeof rawParsedRows !== 'object' ||
+    Array.isArray(rawParsedRows)
+  ) {
+    return NextResponse.json({ error: 'Missing parsedRows' }, { status: 400 })
   }
   if (format !== 'csv' && format !== 'json') {
     return NextResponse.json(
@@ -46,21 +28,11 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  const storedData = rawParsedRows as Record<string, Record<string, unknown>[]>
   const reviews = Array.isArray(rawReviews) ? (rawReviews as ColumnReview[]) : []
 
-  // Step 1: Read stored rows from /tmp
-  let storedData: Record<string, Record<string, unknown>[]>
   try {
-    storedData = readStoredRows(sessionId)
-  } catch {
-    return NextResponse.json(
-      { error: 'Session data not found. Please start over.' },
-      { status: 400 }
-    )
-  }
-
-  try {
-    // Step 2: Apply corrections per file
+    // Apply corrections per file
     const correctedFiles: Array<{
       filename: string
       rows: Record<string, unknown>[]
@@ -72,13 +44,11 @@ export async function POST(request: NextRequest) {
       correctedFiles.push({ filename, rows: corrected })
     }
 
-    // Step 3 + 4: Produce output
     // Column order is preserved because Object.keys() returns keys in insertion
     // order, and the rows were parsed deterministically from the original file.
 
     if (format === 'json') {
       const json = JSON.stringify(correctedFiles, null, 2)
-      deleteStoredRows(sessionId)
       return new NextResponse(json, {
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -93,7 +63,6 @@ export async function POST(request: NextRequest) {
       // Derive headers from first row to preserve original column order
       const headers = rows.length > 0 ? Object.keys(rows[0]) : []
       const csv = Papa.unparse({ fields: headers, data: rows })
-      deleteStoredRows(sessionId)
       const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
       return new NextResponse(csv, {
         headers: {
@@ -113,7 +82,6 @@ export async function POST(request: NextRequest) {
       zip.file(`distil-${csvName}`, csv)
     }
     const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' })
-    deleteStoredRows(sessionId)
     return new NextResponse(new Uint8Array(zipBuffer), {
       headers: {
         'Content-Type': 'application/zip',
@@ -122,7 +90,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (err) {
     console.error('[/api/download]', err)
-    deleteStoredRows(sessionId)
     return NextResponse.json({ error: 'Failed to generate export' }, { status: 500 })
   }
 }
