@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Distil is an open-source tool that turns messy, unstructured data into clean, structured output. Users upload spreadsheets and CSV files. Distil profiles the data deterministically, uses Claude only for what code cannot resolve, flags conflicts and quality issues, and presents a human review interface before producing a clean downloadable file.
+Distil is an open-source tool that turns messy, unstructured data into clean, structured output. Users choose a mode — Find issues (quality checking of structured files) or Structure (extraction from messy files) — then upload their data. Distil profiles data deterministically, uses Claude only for what code cannot resolve, and presents a human review interface before producing a clean downloadable file.
 
 The target user is anyone with useful data trapped in inconsistent formats — factory managers, ops teams, researchers, or anyone inheriting legacy data they didn't create. The interface must be operable without any understanding of APIs, data schemas, or structured data.
 
@@ -324,14 +324,17 @@ This structure is intentionally simple. When Supabase auth and persistence are a
 
 No Claude involvement in file type detection or parsing. Each supported format has a dedicated parser in `lib/parsers/`. File type is detected by extension at upload.
 
-| Format | Extensions | Parser | Notes |
-|---|---|---|---|
-| Excel | `.xlsx`, `.xls` | `xlsx` npm package | Extract all sheets as arrays of row objects |
-| CSV | `.csv` | `papaparse` | Header row auto-detection enabled |
+| Format | Extensions | Parser | Notes | Modes |
+|---|---|---|---|---|
+| Excel | `.xlsx`, `.xls` | `xlsx` npm package | Extract all sheets as arrays of row objects | All |
+| CSV | `.csv` | `papaparse` | Header row auto-detection enabled | All |
+| Plain text | `.txt` | `lib/parsers/whatsapp.ts` → `parseTxt()` | Detects WhatsApp format; falls back to raw text | Structure only |
 
-**Parse failure:** If a single file fails to parse, record the error for that file and continue with remaining files. The failed file is excluded from the profiler with a note that it could not be read. Do not block the session on a single file failure.
+**Parse failure:** If a single file fails to parse, record the error for that file and continue with remaining files. The failed file is excluded from the pipeline with a note that it could not be read. Do not block the session on a single file failure.
 
-**Unsupported formats:** `.txt` and all other formats are rejected at the `DropZone` with the message: "Only CSV and Excel files are supported. Plain text and WhatsApp support is coming soon." Never reach the server.
+**Mode-gated file types:** `.txt` files are accepted only in Structure mode. If a `.txt` file is uploaded in Find issues mode, it is rejected server-side with the error: "Plain text files require Structure mode."
+
+**Unsupported formats:** All other formats are rejected at the `DropZone` with an inline error. Never reach the server.
 
 ---
 
