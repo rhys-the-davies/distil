@@ -4,6 +4,7 @@ import { useRef, useState, useCallback } from 'react'
 import FileList from './FileList'
 
 const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv', '.txt']
+const MAX_FILE_SIZE = 50 * 1024 // 50 KB
 
 function getExtension(filename: string): string {
   const idx = filename.lastIndexOf('.')
@@ -12,6 +13,10 @@ function getExtension(filename: string): string {
 
 function isAccepted(file: File): boolean {
   return ACCEPTED_EXTENSIONS.includes(getExtension(file.name))
+}
+
+function isTooLarge(file: File): boolean {
+  return file.size > MAX_FILE_SIZE
 }
 
 interface DropZoneProps {
@@ -27,13 +32,18 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
   const addFiles = useCallback(
     (incoming: FileList | File[]) => {
       const arr = Array.from(incoming)
-      const rejected = arr.filter((f) => !isAccepted(f))
-      const accepted = arr.filter((f) => isAccepted(f))
+      const wrongType = arr.filter((f) => !isAccepted(f))
+      const tooLarge = arr.filter((f) => isAccepted(f) && isTooLarge(f))
+      const accepted = arr.filter((f) => isAccepted(f) && !isTooLarge(f))
 
-      if (rejected.length > 0) {
-        const names = rejected.map((f) => f.name).join(', ')
+      if (tooLarge.length > 0) {
         setError(
-          `Unsupported file type${rejected.length > 1 ? 's' : ''}: ${names}. Accepted formats: .xlsx, .xls, .csv, .txt`
+          'This file is too large — please keep files under 50KB for now.'
+        )
+      } else if (wrongType.length > 0) {
+        const names = wrongType.map((f) => f.name).join(', ')
+        setError(
+          `Unsupported file type${wrongType.length > 1 ? 's' : ''}: ${names}. Accepted formats: .xlsx, .xls, .csv, .txt`
         )
       } else {
         setError(null)
