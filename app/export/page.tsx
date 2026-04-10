@@ -13,7 +13,7 @@ import type { ExtractionPayload, ColumnReview } from '@/types/field'
 
 type ExportFormat = 'csv' | 'json'
 
-const PREVIEW_ROWS = 3
+const PREVIEW_ROWS = 5
 const PREVIEW_MAX_COLS = 6
 
 // ── Preview builders ──────────────────────────────────────────────────────────
@@ -323,62 +323,74 @@ export default function ExportPage() {
 
           {format === 'csv' ? (
             csvPreview.headers.length > 0 ? (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      {csvPreview.headers.map((h, i) => (
-                        <th
-                          key={i}
-                          style={{
-                            textAlign: 'left',
-                            padding: '8px 14px',
-                            fontSize: '10px',
-                            fontWeight: 500,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.06em',
-                            color: 'var(--color-text-muted)',
-                            borderBottom: '0.5px solid var(--color-border-default)',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {csvPreview.rows.map((row, ri) => (
-                      <tr key={ri}>
-                        {row.map((v, ci) => (
-                          <td
-                            key={ci}
+              <>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        {csvPreview.headers.map((h, i) => (
+                          <th
+                            key={i}
                             style={{
+                              textAlign: 'left',
                               padding: '8px 14px',
-                              fontSize: '13px',
-                              fontWeight: v ? 500 : 400,
-                              color: v
-                                ? 'var(--color-text-primary)'
-                                : 'var(--color-text-placeholder)',
-                              fontStyle: v ? 'normal' : 'italic',
+                              fontSize: '10px',
+                              fontWeight: 500,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                              color: 'var(--color-text-muted)',
+                              borderBottom: '0.5px solid var(--color-border-default)',
                               whiteSpace: 'nowrap',
-                              maxWidth: '180px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              borderBottom:
-                                ri < csvPreview.rows.length - 1
-                                  ? '0.5px solid var(--color-border-default)'
-                                  : 'none',
                             }}
                           >
-                            {v || 'empty'}
-                          </td>
+                            {h}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {csvPreview.rows.map((row, ri) => (
+                        <tr key={ri}>
+                          {row.map((v, ci) => (
+                            <td
+                              key={ci}
+                              style={{
+                                padding: '8px 14px',
+                                fontSize: '13px',
+                                fontWeight: v ? 500 : 400,
+                                color: v
+                                  ? 'var(--color-text-primary)'
+                                  : 'var(--color-text-placeholder)',
+                                fontStyle: v ? 'normal' : 'italic',
+                                whiteSpace: 'nowrap',
+                                maxWidth: '180px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                borderBottom:
+                                  ri < csvPreview.rows.length - 1
+                                    ? '0.5px solid var(--color-border-default)'
+                                    : 'none',
+                              }}
+                            >
+                              {v || 'empty'}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--color-text-muted)',
+                    marginTop: '8px',
+                    padding: '0 16px 12px',
+                  }}
+                >
+                  This is a preview of the first 5 rows with corrections applied. The full dataset will be included in your download.
+                </p>
+              </>
             ) : (
               <p
                 style={{
