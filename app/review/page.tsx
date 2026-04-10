@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { getExtractionPayload, getPendingFiles, clearAll } from '@/lib/store'
+import { getExtractionPayload, setExtractionPayload, getPendingFiles, clearAll } from '@/lib/store'
 import type { ExtractionPayload, Field } from '@/types/field'
 import FieldCard from '@/components/FieldCard'
 import ProcessedFieldsTable from '@/components/ProcessedFieldsTable'
@@ -147,7 +147,7 @@ export default function ReviewPage() {
             style={{
               fontSize: '14px',
               color: 'var(--color-text-muted)',
-              marginBottom: '24px',
+              marginBottom: '10px',
               lineHeight: 1.6,
             }}
           >
@@ -158,6 +158,17 @@ export default function ReviewPage() {
             {actionRequired.length > 0
               ? `${actionRequired.length} field${actionRequired.length !== 1 ? 's' : ''} need your attention before export.`
               : 'All fields extracted cleanly — ready to export.'}
+          </p>
+          <p
+            style={{
+              fontSize: '12px',
+              color: 'var(--color-text-muted)',
+              marginBottom: '24px',
+              lineHeight: 1.5,
+              opacity: 0.7,
+            }}
+          >
+            Extraction results may vary slightly between runs — if something looks wrong, use the feedback section or start over with the same file.
           </p>
 
           {/* Progress */}

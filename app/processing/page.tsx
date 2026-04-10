@@ -282,6 +282,19 @@ export default function ProcessingPage() {
             errorStep={showCompletion && apiError ? STEPS.length - 1 : undefined}
           />
 
+          {!showCompletion && (
+            <p
+              style={{
+                fontSize: '12px',
+                color: 'var(--color-text-muted)',
+                marginTop: '20px',
+                lineHeight: 1.5,
+              }}
+            >
+              This usually takes 20–40 seconds — feel free to grab a coffee.
+            </p>
+          )}
+
           {/* Completion area — fades in once all steps done + API resolved */}
           {showCompletion && (
             <div className="animate-fade-in" style={{ marginTop: '28px' }}>
