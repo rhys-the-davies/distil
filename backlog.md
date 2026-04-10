@@ -326,3 +326,158 @@ This makes the corrector logic explicit, eliminates sentinels, and makes it easy
 **Constraint:** Never silently delete rows. Always show the user which rows will be removed and require explicit confirmation.
 
 **Priority:** Add when a user uploads a file with meaningful duplicate rows that need resolving
+
+---
+
+## ColumnCard refactor — extract resolution sub-components
+
+**Context:** `components/ColumnCard.tsx` is currently ~800 lines. It handles eight different flag types with distinct resolution UIs, all in one component. This works but makes the file hard to read and harder to extend.
+
+**What to build:**
+Extract each flag-type resolution UI into a focused sub-component: `FillAllResolution`, `CapitalisationResolution`, `OutlierResolution`, `MixedTypesResolution`, `CellFillResolution`. `ColumnCard` becomes a shell (~150 lines) that renders the correct sub-component based on `flagType`. Each sub-component should be under 100 lines.
+
+**Why now matters:** Adding a ninth flag type to an 800-line component is harder than adding it to a well-structured component tree. Do this before Follow schema mode is built.
+
+**Priority:** Before Follow schema mode — not blocking current functionality
+
+---
+
+## General simplification pass
+
+**Context:** As the codebase has grown across multiple feature branches, some files have become long and some logic may be duplicated across files. Good practice is to do a periodic simplification pass to keep the codebase readable and maintainable.
+
+**What to do:**
+- Review all files over 400 lines — assess whether they should be split
+- Review all lib/ files for logic that appears in more than one place — give it a shared home
+- Check all API routes for inline logic that should be in lib/ functions
+- Remove any dead code (unused imports, commented-out blocks, stale console.logs)
+- Ensure every function has a JSDoc comment explaining what it does
+
+**How to run it:** Dedicate one session every 3-4 feature branches to this. Treat it like pruning — keeps the codebase healthy as it grows.
+
+**Priority:** Every few feature branches — next due after Follow schema mode
+
+---
+
+## Extensive testing — structured test suite with varied inputs
+
+**Context:** Testing so far has used a small number of hand-crafted files. Before sharing Distil with real users, it needs to be tested against a wider range of messy, awkward, and edge-case inputs to understand where it performs well and where it breaks.
+
+**What to build:**
+A set of test files covering:
+
+*Find issues mode:*
+- Clean CSV with no issues (baseline — should produce all clean fields)
+- CSV with every flag type present (empty cells, placeholders, capitalisation, outliers, mixed types, duplicates, truncated values)
+- XLSX with multiple sheets
+- Very wide CSV (50+ columns)
+- CSV where most columns are entirely N/A
+- CSV with non-standard delimiters or encoding
+
+*Structure mode — tabular:*
+- Messy CSV with inconsistent column headers across rows
+- XLSX with merged cells and repeated headers
+- CSV where the meaningful data starts on row 5 (with metadata above)
+- CSV mixing two different data types in the same file
+
+*Structure mode — text:*
+- Short plain text note (like test-simple-messy.txt)
+- Longer multi-section report
+- WhatsApp export with many participants
+- File with conflicting values across sections
+- File in a non-English language
+
+**What to assess for each:**
+- Did it extract the right fields?
+- Did it flag the right issues?
+- Was the output CSV correct and complete?
+- Did it handle edge cases gracefully or break?
+- Were confidence reasons helpful and actionable?
+
+**Output:** A test report documenting pass/fail for each case and any issues found. Issues become individual backlog entries.
+
+**Priority:** Before sharing with external testers — run this internally first
+
+---
+
+## ColumnCard refactor — extract resolution sub-components
+
+**Context:** `components/ColumnCard.tsx` is currently ~800 lines. It handles eight different flag types, each with its own resolution UI, all in one file. This works but makes the file hard to read and makes adding new flag types increasingly costly.
+
+**What to build:**
+Extract each flag-type resolution UI into a focused sub-component:
+- `FillAllResolution` — entire_column_empty, entire_column_placeholder
+- `CapitalisationResolution` — capitalisation_inconsistency
+- `OutlierResolution` — numeric_outlier
+- `MixedTypesResolution` — mixed_types
+- `CellFillResolution` — empty_cells, placeholder_values, truncated_values
+- `DuplicateRowsResolution` — duplicate_rows (display-only for now)
+
+`ColumnCard` becomes a shell (~150 lines) that renders the correct sub-component based on `flagType`. Each sub-component targets under 100 lines.
+
+**Why now matters:** Do this before Follow schema mode is built — adding a ninth flag type to an 800-line component is harder than adding it to a well-structured tree.
+
+**Priority:** Before Follow schema mode
+
+---
+
+## General simplification pass
+
+**Context:** As features have been added, some files have grown long and some logic has been duplicated across files. This is normal during rapid development but should be addressed periodically to keep the codebase readable.
+
+**What to do:**
+- Review all files over 400 lines for splitting opportunities
+- Identify any logic duplicated in two or more places and give it a shared home
+- Check for any dead code — functions or imports no longer used
+- Review component props for any that have become overly complex
+
+**Cadence:** Run this as a dedicated session every 3-4 feature branches. Treat it like pruning — keeps the codebase healthy as it grows.
+
+**Priority:** After mode picker is stable, before Follow schema mode
+
+---
+
+## Observability pipeline
+
+**Context:** The extraction route currently emits a structured JSON log line per extraction (`event`, `mode`, `filesProcessed`, `totalRows`, `fieldsExtracted`, `durationMs`). This is the minimum viable observability. The logs exist but nothing is done with them.
+
+**What to build:**
+- Set up a log drain from Vercel to an observability tool — Axiom is the natural fit for Vercel deployments, has a generous free tier, and supports structured log queries
+- Build a simple usage dashboard: extractions per day, mode breakdown, average processing time, average fields extracted
+- Add token cost estimation to the log line (input tokens × $3/M + output tokens × $15/M) so actual cost per extraction is visible
+- Alert on extraction errors — if error rate exceeds a threshold, get notified
+
+**Why this matters:** Without this, pricing decisions and performance improvements are guesswork. With it, you have the data to make confident decisions about token costs, user behaviour, and where the tool is struggling.
+
+**Priority:** Before charging users for anything
+
+---
+
+## Structured testing session — messy file stress test
+
+**Context:** Distil has been tested with a small number of hand-crafted test files. Real-world data is messier, more varied, and more surprising than anything we've generated. The tool needs to be tested against a wider range of inputs before being shared broadly.
+
+**What to do:**
+Generate a set of test files covering the full spectrum of messiness:
+
+*Find issues mode:*
+- Clean CSV with one column entirely N/A
+- CSV with mixed date formats (DD/MM/YYYY and MM/DD/YYYY in same column)
+- CSV with numeric outliers (one value 10x the others)
+- CSV with capitalisation inconsistencies across multiple columns
+- CSV with duplicate rows
+- XLSX with multiple sheets, different column structures per sheet
+- CSV with 200 rows (near the practical limit)
+
+*Structure mode:*
+- Short plain text notes (like test-simple-messy.txt)
+- Longer notes with more entities and more ambiguity
+- WhatsApp export with a real conversation structure
+- A messy CSV where columns are inconsistently labelled across rows
+- A file that mixes structured and unstructured content
+
+**For each test:** Record what the tool extracted, what it flagged, what it missed, and what it got wrong. Use the results to improve `prompts/review.md`, `prompts/structure.md`, and `lib/profiler-config.ts` thresholds.
+
+**Output:** A `test-results.md` document in `docs/` that becomes the basis for ongoing regression testing.
+
+**Priority:** Before sharing with external testers
