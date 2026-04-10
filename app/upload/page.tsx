@@ -97,8 +97,8 @@ export default function UploadPage() {
             lineHeight: 1.6,
           }}
         >
-          Drop in your spreadsheets, CSV exports, or WhatsApp chats. Distil
-          will extract and structure the data for you.
+          Upload your files and Distil will find issues, clean, or structure
+          your data — depending on the mode you choose.
         </p>
 
         {/* Export instructions */}
@@ -113,11 +113,11 @@ export default function UploadPage() {
             }}
           >
             <p className="label" style={{ marginBottom: '0' }}>
-              How to export your files
+              Supported file formats
             </p>
           </div>
 
-          {/* WhatsApp */}
+          {/* Excel and CSV */}
           <div
             style={{
               padding: '16px 20px',
@@ -132,7 +132,7 @@ export default function UploadPage() {
                 marginBottom: '6px',
               }}
             >
-              WhatsApp
+              Excel and CSV
             </p>
             <p
               style={{
@@ -141,43 +141,15 @@ export default function UploadPage() {
                 lineHeight: 1.65,
               }}
             >
-              Open the chat → tap the contact name (iOS) or three dots (Android)
-              → Export chat → Without media → save the <code style={{ fontFamily: 'var(--font-body)', background: 'rgba(41,8,0,0.06)', padding: '1px 5px', borderRadius: '4px', fontSize: '12px' }}>.txt</code> file
+              Export from Excel, Google Sheets, or any system that produces{' '}
+              <code style={{ fontFamily: 'var(--font-body)', background: 'rgba(41,8,0,0.06)', padding: '1px 5px', borderRadius: '4px', fontSize: '12px' }}>.xlsx</code>{' '}
+              or{' '}
+              <code style={{ fontFamily: 'var(--font-body)', background: 'rgba(41,8,0,0.06)', padding: '1px 5px', borderRadius: '4px', fontSize: '12px' }}>.csv</code>{' '}
+              files. Drop the file directly — no preparation needed.
             </p>
           </div>
 
-          {/* Excel / Google Sheets */}
-          <div
-            style={{
-              padding: '16px 20px',
-              borderBottom: '0.5px solid var(--color-border-default)',
-            }}
-          >
-            <p
-              style={{
-                fontSize: '13px',
-                fontWeight: 500,
-                color: 'var(--color-text-primary)',
-                marginBottom: '6px',
-              }}
-            >
-              Excel / Google Sheets
-            </p>
-            <p
-              style={{
-                fontSize: '13px',
-                color: 'var(--color-text-muted)',
-                lineHeight: 1.65,
-              }}
-            >
-              Excel: File → Save As → CSV (.csv) or Excel Workbook (.xlsx)
-              <br />
-              Google Sheets: File → Download → Microsoft Excel (.xlsx) or
-              CSV (.csv)
-            </p>
-          </div>
-
-          {/* Other CSV */}
+          {/* Plain text and WhatsApp */}
           <div style={{ padding: '16px 20px' }}>
             <p
               style={{
@@ -187,7 +159,10 @@ export default function UploadPage() {
                 marginBottom: '6px',
               }}
             >
-              Other CSV
+              Plain text and WhatsApp{' '}
+              <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>
+                (Structure mode only)
+              </span>
             </p>
             <p
               style={{
@@ -196,9 +171,12 @@ export default function UploadPage() {
                 lineHeight: 1.65,
               }}
             >
-              Any system that exports to <code style={{ fontFamily: 'var(--font-body)', background: 'rgba(41,8,0,0.06)', padding: '1px 5px', borderRadius: '4px', fontSize: '12px' }}>.csv</code> is supported. Export from your ERP,
-              production system, or quality management tool and drop the file
-              below.
+              WhatsApp: open the chat → tap the name → Export chat → Without
+              media → save the{' '}
+              <code style={{ fontFamily: 'var(--font-body)', background: 'rgba(41,8,0,0.06)', padding: '1px 5px', borderRadius: '4px', fontSize: '12px' }}>.txt</code>{' '}
+              file. Notes and documents: save as{' '}
+              <code style={{ fontFamily: 'var(--font-body)', background: 'rgba(41,8,0,0.06)', padding: '1px 5px', borderRadius: '4px', fontSize: '12px' }}>.txt</code>{' '}
+              and upload directly.
             </p>
           </div>
         </div>

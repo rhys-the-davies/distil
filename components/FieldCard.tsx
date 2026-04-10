@@ -202,7 +202,7 @@ function ReviewActions({
           }
           style={{ fontSize: '13px' }}
         >
-          Looks right
+          Confirm
         </button>
         <button
           type="button"

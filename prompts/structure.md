@@ -43,7 +43,14 @@ For each field object:
 - recordIndex: integer, zero-based
 - status: clean | review | missing
 - confidence: high | medium | low | none
-- confidenceReason: one plain-English sentence
+- confidenceReason: one plain-English sentence written
+  for a non-technical user. Explain what was found in
+  the source, why the confidence level was assigned, and
+  what the user should do if the value looks wrong.
+  Bad: "Single source, medium confidence."
+  Good: "Found as an approximate figure (~7,200) in the
+  visit notes — confirm this is the correct quantity or
+  enter the exact number."
 - rawValue: literal string from source
 - interpretedValue: your normalised interpretation
 - sourceFile: filename
