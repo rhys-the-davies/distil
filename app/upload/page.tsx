@@ -1,13 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DropZone from '@/components/DropZone'
-import { setPendingFiles } from '@/lib/store'
+import { setPendingFiles, setSessionId } from '@/lib/store'
 
 export default function UploadPage() {
   const [files, setFiles] = useState<File[]>([])
   const router = useRouter()
+
+  // Generate a fresh session ID each time the upload screen mounts.
+  // This clears any prior session when the user starts over.
+  useEffect(() => {
+    setSessionId(crypto.randomUUID())
+  }, [])
 
   const canProceed = files.length > 0
 

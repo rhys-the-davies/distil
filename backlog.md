@@ -259,3 +259,70 @@ After all files have been profiled individually, a cross-file pass compares colu
 In `app/api/extract/route.ts`, after all `ProfilerResult` objects are produced, pass them to a new `lib/profiler-cross.ts` module that returns additional `ProfilerFlag` objects with type `cross_file_conflict`. These merge into the flagged issues sent to Claude in Pass 2.
 
 **Priority:** Post-MVP — add when users report conflicts not being caught across multiple uploaded files
+
+---
+
+## /tmp row storage — replace with Supabase on persistence
+
+**Context:** Parsed row data is stored in `/tmp/distil-[sessionId].json` during the extract-to-download session. This works on Vercel serverless functions within a warm instance but is not guaranteed to persist if the function cold-starts between `/api/extract` and `/api/download` — which can happen if the user takes more than a few minutes on the review screen.
+
+**Symptom when this fails:** Download produces an error — "Session data not found. Please start over." The user loses their review work.
+
+**Proper fix:** When Supabase is added for auth and persistence, store parsed rows in a Supabase table keyed by sessionId. `/api/download` reads from Supabase rather than `/tmp`. Rows are deleted after download or after 24 hours.
+
+**Interim mitigation:** Set a short, clear error message when `/tmp` read fails. Preserve the review screen state in the client so the user does not lose their resolution decisions — they only need to re-upload and re-run extraction.
+
+**Priority:** Fix when first user reports session loss — before that it is a theoretical risk not a confirmed failure mode
+
+---
+
+## Structured export — primary key keying for cell corrections
+
+**Context:** MVP cell corrections are keyed by `rowIndex` — zero-based positional index in the parsed row array. This is stable for deterministically parsed CSV and XLSX files in the MVP context.
+
+**Why primary key keying is better:** If row order is ever non-deterministic (different parsers, sheet re-ordering, future streaming), a positional rowIndex may not match the same row at export time as it did at profiling time. The correct key is the value of `FileCharacterisation.primaryKeyColumn` for that row — a stable business identifier.
+
+**What to build:**
+- Add `primaryKeyValue: string | null` to `CellCorrection`
+- In `/api/extract`, populate `primaryKeyValue` from the column identified in `FileCharacterisation.primaryKeyColumn`
+- In `lib/corrector.ts`, match by `primaryKeyValue` when present, fall back to `rowIndex` when null
+- Update corrector unit tests to cover primary key matching
+
+**Priority:** Add when a user reports incorrect corrections being applied — likely indicates row order instability
+
+---
+
+## Structured export — CorrectionRule union type for advanced transformations
+
+**Context:** MVP uses `ColumnReview.formatRule` (a simple string enum) for capitalisation transformations and `rowIndex: -1` sentinels for entire-column fills. These are pragmatic shortcuts that work for the MVP use cases.
+
+**Better long-term design:** A `CorrectionRule` union type that explicitly models each transformation type:
+```typescript
+type CorrectionRule =
+  | { type: 'fill_empty'; value: string }
+  | { type: 'fill_all'; value: string }
+  | { type: 'standardise'; format: 'UPPERCASE' | 'lowercase' | 'Title Case' }
+  | { type: 'replace_exact'; from: string; to: string }
+  | { type: 'accept' }
+```
+
+This makes the corrector logic explicit, eliminates sentinels, and makes it easy to add new transformation types (regex replace, type coercion, unit conversion) without touching existing logic.
+
+**Priority:** Refactor when adding a new transformation type that the current approach can't handle cleanly
+
+---
+
+## Structured export — duplicate row deduplication
+
+**Context:** The profiler detects duplicate rows and surfaces them in `ColumnCard` as display-only in the MVP. Actual deduplication (choosing which duplicate to keep) is deferred.
+
+**What to build:**
+- `ColumnCard` for `duplicate_rows` flag shows pairs of duplicate rows
+- User selects "Keep first" / "Keep second" / "Keep both" per pair
+- Bulk action: "Keep first occurrence of all duplicates"
+- Corrector marks removed rows as skipped in output
+- Note: this requires changing the corrector to support row-level operations, not just cell-level
+
+**Constraint:** Never silently delete rows. Always show the user which rows will be removed and require explicit confirmation.
+
+**Priority:** Add when a user uploads a file with meaningful duplicate rows that need resolving

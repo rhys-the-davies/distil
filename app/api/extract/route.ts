@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { writeFileSync } from 'fs'
+import { join } from 'path'
 import { getReviewPrompt, getObservePrompt } from '@/lib/prompts'
 import { parseXlsx, type XlsxParseResult } from '@/lib/parsers/xlsx'
 import { parseCsv, type CsvParseResult } from '@/lib/parsers/csv'
 import { profileFile } from '@/lib/profiler'
 import { FIELD_SCHEMA } from '@/lib/schema'
+import {
+  OUTLIER_STD_DEVIATIONS,
+  MIN_CAPITALISATION_VARIANTS,
+  PLACEHOLDER_VALUES,
+} from '@/lib/profiler-config'
 import type { ExtractionPayload, ExtractionSummary, Field } from '@/types/field'
-import type { FileCharacterisation, ProfilerResult, ColumnProfile } from '@/types/profiler'
+import type {
+  FileCharacterisation,
+  ProfilerResult,
+  ColumnProfile,
+  ProfilerFlagType,
+} from '@/types/profiler'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -17,6 +29,16 @@ function getExtension(filename: string): string {
   return idx === -1 ? '' : filename.slice(idx).toLowerCase()
 }
 
+// ── /tmp row storage ──────────────────────────────────────────────────────────
+
+function storeRows(
+  sessionId: string,
+  data: Record<string, Record<string, unknown>[]>
+): void {
+  const path = join('/tmp', `distil-${sessionId}.json`)
+  writeFileSync(path, JSON.stringify(data), 'utf-8')
+}
+
 // ── Parsed file representation ────────────────────────────────────────────────
 
 interface ParsedFile {
@@ -25,6 +47,167 @@ interface ParsedFile {
   headers: string[]                  // column headers for the observation pass
   totalRows: number                  // full row count (pre-truncation) for observation
   result: XlsxParseResult | CsvParseResult
+}
+
+// ── Offending cells extraction ────────────────────────────────────────────────
+
+const DATE_RE =
+  /^\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4}|\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}/
+
+function inferValueType(val: unknown): string {
+  if (val === null || val === undefined) return 'empty'
+  if (typeof val === 'boolean') return 'boolean'
+  if (typeof val === 'number') return 'number'
+  if (typeof val === 'string') {
+    const t = val.trim()
+    if (DATE_RE.test(t)) return 'date'
+    if (t !== '' && !isNaN(Number(t))) return 'number'
+    return 'string'
+  }
+  return 'string'
+}
+
+function extractOffendingCells(
+  rows: Record<string, unknown>[],
+  col: ColumnProfile,
+  flagType: ProfilerFlagType
+): Array<{ rowIndex: number; value: string }> {
+  const MAX = 10
+  const cells: Array<{ rowIndex: number; value: string }> = []
+  const colName = col.name
+
+  switch (flagType) {
+    case 'empty_cells': {
+      for (let i = 0; i < rows.length && cells.length < MAX; i++) {
+        const val = rows[i][colName]
+        if (
+          val === null ||
+          val === undefined ||
+          (typeof val === 'string' && val.trim() === '')
+        ) {
+          cells.push({ rowIndex: i, value: '' })
+        }
+      }
+      break
+    }
+
+    case 'placeholder_values': {
+      for (let i = 0; i < rows.length && cells.length < MAX; i++) {
+        const val = rows[i][colName]
+        if (
+          typeof val === 'string' &&
+          PLACEHOLDER_VALUES.includes(val.trim().toLowerCase())
+        ) {
+          cells.push({ rowIndex: i, value: val })
+        }
+      }
+      break
+    }
+
+    case 'capitalisation_inconsistency': {
+      // Find lowercase groups that have 2+ distinct capitalisation variants
+      const groups = new Map<string, Set<string>>()
+      for (const row of rows) {
+        const val = row[colName]
+        if (!val || typeof val !== 'string') continue
+        const trimmed = val.trim()
+        if (!trimmed) continue
+        const lower = trimmed.toLowerCase()
+        if (!groups.has(lower)) groups.set(lower, new Set())
+        groups.get(lower)!.add(trimmed)
+      }
+      const offending = new Set<string>()
+      for (const [, variants] of groups) {
+        if (variants.size >= MIN_CAPITALISATION_VARIANTS) {
+          for (const v of variants) offending.add(v)
+        }
+      }
+      for (let i = 0; i < rows.length && cells.length < MAX; i++) {
+        const val = rows[i][colName]
+        if (typeof val === 'string' && offending.has(val.trim())) {
+          cells.push({ rowIndex: i, value: val })
+        }
+      }
+      break
+    }
+
+    case 'numeric_outlier': {
+      // Replicate the profiler's median-anchored outlier detection
+      const nums: Array<{ rowIndex: number; value: number }> = []
+      for (let i = 0; i < rows.length; i++) {
+        const val = rows[i][colName]
+        if (val === null || val === undefined) continue
+        const n = typeof val === 'number' ? val : Number(String(val).trim())
+        if (!isNaN(n)) nums.push({ rowIndex: i, value: n })
+      }
+      if (nums.length >= 2) {
+        const sorted = [...nums.map((n) => n.value)].sort((a, b) => a - b)
+        const mid = Math.floor(sorted.length / 2)
+        const centre =
+          sorted.length % 2 === 0
+            ? (sorted[mid - 1] + sorted[mid]) / 2
+            : sorted[mid]
+        const sd = Math.sqrt(
+          sorted.reduce((sum, n) => sum + Math.pow(n - centre, 2), 0) /
+            sorted.length
+        )
+        if (sd > 0) {
+          for (const { rowIndex, value } of nums) {
+            if (cells.length >= MAX) break
+            if (Math.abs(value - centre) > OUTLIER_STD_DEVIATIONS * sd) {
+              cells.push({ rowIndex, value: String(value) })
+            }
+          }
+        }
+      }
+      break
+    }
+
+    case 'mixed_types': {
+      // Find the dominant type and surface non-dominant cells
+      const typeCounts = new Map<string, number>()
+      for (const row of rows) {
+        const t = inferValueType(row[colName])
+        if (t !== 'empty') typeCounts.set(t, (typeCounts.get(t) ?? 0) + 1)
+      }
+      let dominant = ''
+      let maxCount = 0
+      for (const [t, count] of typeCounts) {
+        if (count > maxCount) {
+          dominant = t
+          maxCount = count
+        }
+      }
+      for (let i = 0; i < rows.length && cells.length < MAX; i++) {
+        const val = rows[i][colName]
+        const t = inferValueType(val)
+        if (t !== 'empty' && t !== dominant) {
+          cells.push({ rowIndex: i, value: String(val) })
+        }
+      }
+      break
+    }
+
+    case 'truncated_values': {
+      for (let i = 0; i < rows.length && cells.length < MAX; i++) {
+        const val = rows[i][colName]
+        if (
+          typeof val === 'string' &&
+          (val.trimEnd().endsWith('...') || val.trimEnd().endsWith('…'))
+        ) {
+          cells.push({ rowIndex: i, value: val })
+        }
+      }
+      break
+    }
+
+    // entire_column_empty, entire_column_placeholder, duplicate_rows:
+    // ColumnCard shows a fill-all UI for these — no per-cell table needed
+    default:
+      break
+  }
+
+  return cells
 }
 
 // ── Pass 0 — Observation ──────────────────────────────────────────────────────
@@ -100,16 +283,22 @@ function buildInterpretationUserMessage(
       parts.push('\n### Flagged columns (interpret these):')
       const flagged = columns.filter((c) => flaggedColumns.includes(c.name))
       for (const col of flagged) {
-        parts.push(JSON.stringify({
-          column: col.name,
-          role: col.role,
-          dataType: col.dataType,
-          populatedCount: col.populatedCount,
-          totalCount: col.totalCount,
-          uniqueValues: col.uniqueValues,
-          sampleValues: col.sampleValues,
-          flags: col.flags,
-        }, null, 2))
+        parts.push(
+          JSON.stringify(
+            {
+              column: col.name,
+              role: col.role,
+              dataType: col.dataType,
+              populatedCount: col.populatedCount,
+              totalCount: col.totalCount,
+              uniqueValues: col.uniqueValues,
+              sampleValues: col.sampleValues,
+              flags: col.flags,
+            },
+            null,
+            2
+          )
+        )
       }
     }
 
@@ -126,12 +315,15 @@ function buildInterpretationUserMessage(
 
   if (failures.length > 0) {
     const failLines = failures.map((f) => `  - ${f.filename}: ${f.error}`)
-    parts.push(`[Note: The following files could not be parsed and are excluded:\n${failLines.join('\n')}]`)
+    parts.push(
+      `[Note: The following files could not be parsed and are excluded:\n${failLines.join('\n')}]`
+    )
   }
 
-  const schemaNote = FIELD_SCHEMA.length > 0
-    ? `\nField schema to map to:\n${JSON.stringify(FIELD_SCHEMA, null, 2)}`
-    : '\n[No field schema provided — extract all recognisable fields freely.]'
+  const schemaNote =
+    FIELD_SCHEMA.length > 0
+      ? `\nField schema to map to:\n${JSON.stringify(FIELD_SCHEMA, null, 2)}`
+      : '\n[No field schema provided — extract all recognisable fields freely.]'
 
   return parts.join('\n') + schemaNote
 }
@@ -159,11 +351,15 @@ function validateField(raw: unknown): Field | null {
     sourceLocation: (f.sourceLocation as string | null) ?? null,
     required: schemaDef?.required ?? false,
     conflict: (f.conflict as Field['conflict']) ?? undefined,
+    source: 'profiler',
   }
 }
 
 function columnToCleanField(col: ColumnProfile, filename: string): Field {
-  const id = col.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  const id = col.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
   const schemaDef = FIELD_SCHEMA.find((s) => s.id === id)
   const firstSample = col.sampleValues[0] ?? null
 
@@ -178,13 +374,13 @@ function columnToCleanField(col: ColumnProfile, filename: string): Field {
     sourceFile: filename,
     sourceLocation: null,
     required: schemaDef?.required ?? false,
+    source: 'profiler',
   }
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  // Optional sessionId — unused in MVP, reserved for future persistence
   let formData: FormData
   try {
     formData = await request.formData()
@@ -193,6 +389,12 @@ export async function POST(request: NextRequest) {
       { error: 'Invalid request — expected multipart form data' },
       { status: 400 }
     )
+  }
+
+  // a) Require sessionId
+  const sessionId = formData.get('sessionId')
+  if (!sessionId || typeof sessionId !== 'string') {
+    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 })
   }
 
   const uploaded = formData.getAll('files') as File[]
@@ -219,9 +421,9 @@ export async function POST(request: NextRequest) {
       if (ext === '.xlsx' || ext === '.xls') {
         const result = parseXlsx(buffer)
         const firstSheet = result.sheets[0]
-        const headers = firstSheet?.rows.length > 0 ? Object.keys(firstSheet.rows[0]) : []
+        const headers =
+          firstSheet?.rows.length > 0 ? Object.keys(firstSheet.rows[0]) : []
         const totalRows = result.sheets.reduce((n, s) => n + s.totalRows, 0)
-        // Flatten all sheets — profiler handles the combined column set
         const rows = result.sheets.flatMap((s) => s.rows)
         parsed.push({ filename: file.name, rows, headers, totalRows, result })
       } else {
@@ -251,6 +453,13 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // b) Store full rows to /tmp before any profiler truncation
+  const allParsedData: Record<string, Record<string, unknown>[]> = {}
+  for (const file of parsed) {
+    allParsedData[file.filename] = file.rows
+  }
+  storeRows(sessionId, allParsedData)
+
   // ── Step 2: Pass 0 — Observation (per file, Claude) ───────────────────────
 
   const characterisations = new Map<string, FileCharacterisation>()
@@ -259,10 +468,11 @@ export async function POST(request: NextRequest) {
     try {
       const char = await runObservationPass(file)
       characterisations.set(file.filename, char)
-      console.log(`[extract] Pass 0 — ${file.filename}: "${char.fileType}" (${char.domain})`)
+      console.log(
+        `[extract] Pass 0 — ${file.filename}: "${char.fileType}" (${char.domain})`
+      )
     } catch (err) {
       console.error(`[extract] Pass 0 failed for ${file.filename}:`, err)
-      // Fallback: continue with a minimal characterisation rather than blocking the session
       characterisations.set(file.filename, {
         fileType: 'unknown',
         domain: 'unknown',
@@ -283,9 +493,26 @@ export async function POST(request: NextRequest) {
     profilerResults.push({ filename: file.filename, result: profilerResult })
     console.log(
       `[extract] Pass 1 — ${file.filename}: ` +
-      `${profilerResult.cleanColumns.length} clean, ` +
-      `${profilerResult.flaggedColumns.length} flagged columns`
+        `${profilerResult.cleanColumns.length} clean, ` +
+        `${profilerResult.flaggedColumns.length} flagged columns`
     )
+  }
+
+  // c) Extract offending cells for each flagged column (up to 10 per column)
+  const offendingCells: ExtractionPayload['offendingCells'] = {}
+
+  for (const { filename, result } of profilerResults) {
+    const file = parsed.find((p) => p.filename === filename)!
+    for (const col of result.columns) {
+      if (col.flags.length === 0) continue
+      // Use the first (most relevant) flag for per-cell extraction
+      const primaryFlag = col.flags[0]
+      const cells = extractOffendingCells(file.rows, col, primaryFlag.type)
+      if (cells.length > 0) {
+        if (!offendingCells[filename]) offendingCells[filename] = {}
+        offendingCells[filename][col.name] = cells
+      }
+    }
   }
 
   // ── Step 4: Pass 2 — Interpretation (Claude, flagged columns only) ─────────
@@ -325,9 +552,31 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── Step 5: Merge — clean columns + Claude's flagged fields ───────────────
+  // ── Step 5: Enrich Claude fields with profiler metadata ───────────────────
 
-  // Claude's fields take precedence; only add clean-column fields Claude didn't cover
+  // Build a lookup: (filename, columnName) → ColumnProfile
+  const colProfileLookup = new Map<string, ColumnProfile>()
+  for (const { filename, result } of profilerResults) {
+    for (const col of result.columns) {
+      colProfileLookup.set(`${filename}::${col.name}`, col)
+    }
+  }
+
+  // Attach flagType, totalAffected, totalRows to each Claude field
+  for (const field of claudeFields) {
+    if (!field.sourceFile || !field.label) continue
+    const col = colProfileLookup.get(`${field.sourceFile}::${field.label}`)
+    if (!col) continue
+    const primaryFlag = col.flags[0]
+    if (primaryFlag) {
+      field.flagType = primaryFlag.type
+      field.totalAffected = primaryFlag.count
+    }
+    field.totalRows = col.totalCount
+  }
+
+  // ── Step 6: Merge — clean columns + Claude's flagged fields ───────────────
+
   const claudeFieldIds = new Set(claudeFields.map((f) => f.id))
   const cleanFields: Field[] = []
 
@@ -343,7 +592,7 @@ export async function POST(request: NextRequest) {
 
   const fields: Field[] = [...claudeFields, ...cleanFields]
 
-  // ── Step 6: Summary and response ──────────────────────────────────────────
+  // ── Step 7: Summary and response ──────────────────────────────────────────
 
   const summary: ExtractionSummary = {
     filesProcessed: parsed.length,
@@ -352,6 +601,7 @@ export async function POST(request: NextRequest) {
     conflicts: fields.filter((f) => f.status === 'conflict').length,
     missingRequired: fields.filter((f) => f.status === 'missing' && f.required).length,
     warnings: fields.filter((f) => f.status === 'review').length,
+    totalRows: parsed.reduce((sum, f) => sum + f.rows.length, 0),
   }
 
   const fileTypes: Record<string, string> = {}
@@ -359,6 +609,19 @@ export async function POST(request: NextRequest) {
     fileTypes[filename] = result.type
   }
 
-  const payload: ExtractionPayload = { summary, fields, fileTypes }
+  // First 3 rows per file — used client-side for the export preview
+  const sampleRows: Record<string, Record<string, unknown>[]> = {}
+  for (const file of parsed) {
+    sampleRows[file.filename] = file.rows.slice(0, 3)
+  }
+
+  const payload: ExtractionPayload = {
+    summary,
+    fields,
+    fileTypes,
+    offendingCells,
+    sampleRows,
+  }
+
   return NextResponse.json(payload)
 }
